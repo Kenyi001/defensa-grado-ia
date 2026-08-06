@@ -1,0 +1,33 @@
+# Dependencias del proyecto - Sistema de Alerta Temprana para la Desercion Estudiantil
+# Versiones fijadas: son EXACTAMENTE las instaladas y verificadas el 2026-08-05
+# sobre Python 3.12.13 (venv creado con uv).
+#
+# Instalacion:
+#   uv venv --python 3.12 .venv
+#   .venv\Scripts\activate
+#   uv pip install -r requirements.txt
+
+# --- Datos ---
+pandas==3.0.5
+numpy==2.5.1
+scipy==1.18.0
+
+# --- Visualizacion ---
+matplotlib==3.11.1
+seaborn==0.13.2
+
+# --- Machine Learning ---
+scikit-learn==1.9.0
+imbalanced-learn==0.14.2
+joblib==1.5.3
+threadpoolctl==3.6.0
+xgboost==3.4.0
+
+# --- Descarga del dataset UCI (id=697) ---
+ucimlrepo==0.0.7
+
+# --- Entorno de notebooks ---
+jupyter==1.1.1
+jupyterlab==4.6.2
+notebook==7.6.1
+ipykernel==7.3.0

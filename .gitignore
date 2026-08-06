@@ -1,0 +1,28 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Datos crudos (se descargan con src/cargar_datos.py, no se versionan)
+data/raw/*
+!data/raw/.gitkeep
+
+# NOTA: outputs/ SI se versiona a proposito.
+# Las figuras generadas se insertan en el documento Word de la defensa.
+
+# Sistema operativo / editores
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
