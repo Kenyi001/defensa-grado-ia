@@ -26,6 +26,16 @@ xgboost==3.4.0
 # --- Descarga del dataset UCI (id=697) ---
 ucimlrepo==0.0.7
 
+# --- API de inferencia (FastAPI) ---
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pydantic==2.11.7
+python-multipart==0.0.20
+httpx==0.28.1
+
+# --- Tests ---
+pytest==8.4.1
+
 # --- Entorno de notebooks ---
 jupyter==1.1.1
 jupyterlab==4.6.2

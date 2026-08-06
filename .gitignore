@@ -17,6 +17,9 @@ __pycache__/
 data/raw/*
 !data/raw/.gitkeep
 
+# Artefactos del modelo (placeholder o real; se regeneran / exportan aparte)
+models/*.joblib
+
 # NOTA: outputs/ SI se versiona a proposito.
 # Las figuras generadas se insertan en el documento Word de la defensa.
 
@@ -26,3 +29,7 @@ desktop.ini
 .DS_Store
 .vscode/
 .idea/
+
+# Cursor (config/cache local del editor, no del proyecto)
+.cursor/
+graphify-out/

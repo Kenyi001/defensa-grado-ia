@@ -80,6 +80,8 @@ segun el entorno.
 DefenzaGrado/
 ├── notebooks/
 │   └── 01_desercion_estudiantil.ipynb   Analisis completo por fases CRISP-DM
+├── api/                                 Servicio FastAPI de inferencia
+├── models/                              Artefacto .joblib (placeholder o real)
 ├── src/
 │   └── cargar_datos.py                  Descarga el dataset UCI 697 (con fallback a ZIP)
 ├── data/
@@ -87,6 +89,7 @@ DefenzaGrado/
 ├── outputs/
 │   └── figuras/                         Figuras a 300 dpi (SI versionado -> van al Word)
 ├── docs/                                Documento de la defensa y notas
+├── render.yaml                          Blueprint Render (Web Service)
 ├── requirements.txt                     Dependencias con version fijada
 └── README.md
 ```
@@ -107,6 +110,38 @@ insertan en el documento Word de la defensa.
 
 Cada figura se guarda con `plt.savefig(DIR_FIGURAS / "nombre.png", dpi=300)` para
 que entre con calidad de impresion en el documento.
+
+## API de prediccion (servicio de inferencia)
+
+La carpeta `api/` sirve un modelo ya entrenado (inferencia). **No entrena**: el
+analisis CRISP-DM sigue en el notebook.
+
+Hoy el artefacto puede ser un **placeholder** sintetico
+(`python models/entrenar_placeholder.py` → `models/random_forest_v1.joblib`).
+Antes de la defensa hay que reemplazarlo por el modelo real exportado en la Fase 5.
+
+```bash
+# 1. Generar el modelo placeholder (solo para probar la API)
+python models/entrenar_placeholder.py
+
+# 2. Levantar el servicio
+uvicorn api.main:app --reload
+```
+
+Abrí `http://127.0.0.1:8000/docs` (Swagger UI, generado solo por FastAPI/Pydantic).
+
+| Metodo | Ruta | Que hace |
+|---|---|---|
+| GET | `/salud` | Estado del servicio + version del modelo |
+| POST | `/predecir` | Una fila (36 variables UCI 697) → clase + probabilidad |
+| POST | `/predecir/lote` | Lista de estudiantes |
+| GET | `/reporte` | Agregados (conteos, tasa, probabilidad promedio); filtros `sede_id`, `umbral`, `carrera`; `formato=json\|csv` |
+
+`sede_id` es metadata de la peticion (multi-sede del servicio). **No** es una
+feature del Random Forest: el dataset UCI no tiene columna de sede.
+
+Despliegue: blueprint en `render.yaml` (conectar el repo desde el dashboard de
+Render). Tests basicos: `pytest tests/test_api.py`.
 
 ## Entorno verificado
 

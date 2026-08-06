@@ -1,0 +1,22 @@
+# Blueprint Render — Web Service (conectar el repo desde el dashboard).
+# No despliega solo: hay que vincular el repositorio en Render manualmente.
+#
+# Nota: models/*.joblib esta en .gitignore. En el build se genera el
+# placeholder para que el servicio arranque; antes de la defensa reemplazar
+# por el modelo real (versionado o generado en build desde el export del notebook).
+
+services:
+  - type: web
+    name: defenza-grado-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python models/entrenar_placeholder.py
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /salud
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.13"
+      - key: MODELO_VERSION
+        value: v1
+      - key: UMBRAL_DEFAULT
+        value: "0.5"

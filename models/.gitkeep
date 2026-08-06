@@ -1,0 +1,5 @@
+# Artefactos del modelo.
+# Generar el .joblib (preferido, datos UCI reales):
+#   python src/exportar_modelo.py
+# Fallback sintetico solo para probar la API sin CSV:
+#   python models/entrenar_placeholder.py
