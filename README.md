@@ -1,4 +1,4 @@
-[![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Kenyi001/defensa-grado-ia/blob/main/notebooks/01_desercion_estudiantil.ipynb)
+[![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Kenyi001/defensa-grado-ia/blob/master/notebooks/01_desercion_estudiantil.ipynb)
 
 # Sistema de Alerta Temprana para la Desercion Estudiantil
 
