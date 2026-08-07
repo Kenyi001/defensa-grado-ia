@@ -1,16 +1,20 @@
 # Blueprint Render — Web Service (conectar el repo desde el dashboard).
 # No despliega solo: hay que vincular el repositorio en Render manualmente.
 #
-# Nota: models/*.joblib esta en .gitignore. En el build se genera el
-# placeholder para que el servicio arranque; antes de la defensa reemplazar
-# por el modelo real (versionado o generado en build desde el export del notebook).
+# El modelo real (models/random_forest_v1.joblib) esta versionado en el repo,
+# por lo que el build NO entrena nada: solo instala dependencias y arranca.
+# El artefacto lo produce la Fase 6.1 del notebook.
+#
+# DATASET_PATH apunta a la poblacion de demo (los 794 estudiantes con matricula
+# vigente que exporta la Fase 6.3). Sin esa variable, /reporte cae a una
+# poblacion sintetica de respaldo y reportaria sobre estudiantes inventados.
 
 services:
   - type: web
     name: defenza-grado-api
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && python models/entrenar_placeholder.py
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /salud
     envVars:
@@ -20,3 +24,5 @@ services:
         value: v1
       - key: UMBRAL_DEFAULT
         value: "0.5"
+      - key: DATASET_PATH
+        value: data/demo/estudiantes_matriculados.csv

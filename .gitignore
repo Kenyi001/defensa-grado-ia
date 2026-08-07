@@ -17,8 +17,11 @@ __pycache__/
 data/raw/*
 !data/raw/.gitkeep
 
-# Artefactos del modelo (placeholder o real; se regeneran / exportan aparte)
+# Artefactos del modelo. Se ignoran por defecto, EXCEPTO el modelo entregado:
+# ese si se versiona para que el servicio arranque con el modelo real (no con
+# el placeholder sintetico) sin tener que entrenar en el build.
 models/*.joblib
+!models/random_forest_v1.joblib
 
 # NOTA: outputs/ SI se versiona a proposito.
 # Las figuras generadas se insertan en el documento Word de la defensa.

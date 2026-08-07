@@ -116,15 +116,12 @@ que entre con calidad de impresion en el documento.
 La carpeta `api/` sirve un modelo ya entrenado (inferencia). **No entrena**: el
 analisis CRISP-DM sigue en el notebook.
 
-Hoy el artefacto puede ser un **placeholder** sintetico
-(`python models/entrenar_placeholder.py` → `models/random_forest_v1.joblib`).
-Antes de la defensa hay que reemplazarlo por el modelo real exportado en la Fase 5.
+El modelo real (`models/random_forest_v1.joblib`) **esta versionado en el repo**:
+lo exporta la Fase 6.1 del notebook y el servicio arranca con el directamente,
+sin entrenar nada. Recall 90,49% y Precision 86,82% sobre el conjunto de prueba
+(ver `models/README.md`).
 
 ```bash
-# 1. Generar el modelo placeholder (solo para probar la API)
-python models/entrenar_placeholder.py
-
-# 2. Levantar el servicio
 uvicorn api.main:app --reload
 ```
 
