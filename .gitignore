@@ -33,3 +33,8 @@ desktop.ini
 # Cursor (config/cache local del editor, no del proyecto)
 .cursor/
 graphify-out/
+
+# Borrador de referencia (material de estudio privado, NO va al repo publico).
+# Su contenido se integra a mano en 01_desercion_estudiantil.ipynb por tandas.
+notebooks/_referencia/
+outputs/figuras_referencia/
