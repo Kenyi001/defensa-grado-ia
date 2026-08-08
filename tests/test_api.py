@@ -149,6 +149,55 @@ def test_vista_previa_correo(client: TestClient) -> None:
     assert "No es un pronostico" in body["cuerpo"]
 
 
+def test_destino_configurable(client: TestClient, tmp_path, monkeypatch) -> None:
+    """Lo que se guarda desde la interfaz es lo que se lee despues.
+
+    Si no persistiera, el panel de envio seria decorativo: mostraria valores que
+    el cron nunca usa.
+    """
+    from api.logica import destino as mod
+
+    monkeypatch.setattr(mod, "RUTA_DESTINO", tmp_path / "destino.json")
+
+    r = client.put(
+        "/reporte/destino",
+        json={"destinatarios": ["bienestar@utepsa.edu", "tutorias@utepsa.edu"],
+              "frecuencia": "0 7 1 * *"},
+    )
+    assert r.status_code == 200
+
+    leido = client.get("/reporte/destino").json()
+    assert leido["destinatarios"] == ["bienestar@utepsa.edu", "tutorias@utepsa.edu"]
+    assert leido["frecuencia"] == "0 7 1 * *"
+
+    # Sin destinatarios en la query, la vista previa (y por lo tanto el cron)
+    # usa los configurados.
+    previa = client.get("/reporte/correo", params={"umbral": 0.5}).json()
+    assert previa["destinatarios"] == ["bienestar@utepsa.edu", "tutorias@utepsa.edu"]
+
+
+def test_destino_rechaza_datos_invalidos(client: TestClient, tmp_path, monkeypatch) -> None:
+    """Un correo mal escrito tiene que fallar en el momento, no el lunes a las 7."""
+    from api.logica import destino as mod
+
+    monkeypatch.setattr(mod, "RUTA_DESTINO", tmp_path / "destino.json")
+
+    r = client.put(
+        "/reporte/destino",
+        json={"destinatarios": ["no-es-un-correo"], "frecuencia": "0 7 * * 1"},
+    )
+    assert r.status_code == 422
+
+    r = client.put(
+        "/reporte/destino",
+        json={"destinatarios": ["a@b.com"], "frecuencia": "cada rato"},
+    )
+    assert r.status_code == 422
+
+    r = client.put("/reporte/destino", json={"destinatarios": [], "frecuencia": "0 7 * * 1"})
+    assert r.status_code == 422
+
+
 def test_vista_previa_y_csv_cuentan_lo_mismo(client: TestClient) -> None:
     """La vista previa no puede diferir del adjunto real.
 

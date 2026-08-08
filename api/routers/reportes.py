@@ -4,14 +4,59 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
 from api.config import LIMITE_REPORTE_DEFAULT, LIMITE_REPORTE_MAX, SEDES, UMBRAL_DEFAULT
+from api.logica.destino import (
+    FRECUENCIAS,
+    guardar_destino,
+    leer_destino,
+    validar,
+)
 from api.logica.reporte import armar_reporte, resumen_correo
 from api.schemas import ReporteOutput
 
 router = APIRouter(tags=["reportes"])
+
+
+@router.get("/reporte/destino", response_model=None)
+def obtener_destino():
+    """A quien y cada cuanto se envia el reporte, hoy.
+
+    La interfaz lo consulta al abrirse para mostrar la configuracion REAL en
+    vez de un valor de ejemplo: si la pantalla mostrara un placeholder, el
+    operador no tendria forma de saber a quien le esta llegando el reporte.
+    """
+    actual = leer_destino()
+    return {
+        **actual,
+        "frecuencias_disponibles": FRECUENCIAS,
+        # Declarado en la respuesta y no solo en la documentacion: en el plan
+        # gratuito de Render el disco es efimero y esto se pierde al redesplegar.
+        "persistencia": (
+            "El archivo de configuracion vive en el disco del servicio. En el plan "
+            "gratuito ese disco es efimero: al redesplegar vuelve al valor de la "
+            "variable de entorno REPORTE_EMAIL_TO."
+        ),
+    }
+
+
+@router.put("/reporte/destino", response_model=None)
+def actualizar_destino(
+    destinatarios: list[str] = Body(..., embed=True),
+    frecuencia: str = Body(..., embed=True),
+):
+    """Cambia los destinatarios y la frecuencia desde la interfaz.
+
+    No toca credenciales: el servidor de correo se configura por variables de
+    entorno del servicio y no se expone por HTTP en ningun sentido.
+    """
+    limpios = [d.strip() for d in destinatarios if d and d.strip()]
+    errores = validar(limpios, frecuencia)
+    if errores:
+        raise HTTPException(status_code=422, detail=errores)
+    return {"guardado": True, **guardar_destino(limpios, frecuencia)}
 
 
 @router.get("/reporte/correo", response_model=None)
@@ -41,9 +86,12 @@ def vista_previa_correo(
     )
     senalados = [e for e in data["estudiantes"] if e["en_riesgo"]]
     sede_txt = sede_id or "todas las sedes"
+    # Sin destinatarios explicitos se usan los configurados. Asi el cron, que no
+    # pasa ninguno, envia exactamente a quien dice la pantalla.
+    pedidos = [d.strip() for d in destinatarios.split(",") if d.strip()]
     return {
         "asunto": f"Alerta temprana de desercion - {sede_txt}",
-        "destinatarios": [d.strip() for d in destinatarios.split(",") if d.strip()],
+        "destinatarios": pedidos or leer_destino()["destinatarios"],
         "cuerpo": resumen_correo(data["estudiantes"], umbral, sede_id),
         "adjunto": {
             "nombre": "alerta_temprana.csv",

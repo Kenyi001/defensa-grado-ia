@@ -26,20 +26,25 @@ import urllib.request
 from email.message import EmailMessage
 
 
-def resumen_legible(base_url: str, args) -> str:
-    """Cuerpo del correo, pedido a la API.
+def correo_a_enviar(base_url: str, args) -> dict:
+    """Asunto, destinatarios y cuerpo del correo, pedidos a la API.
 
     Se consulta /reporte/correo en vez de recalcularlo aca a proposito: es el
     mismo texto que muestra la vista previa de la interfaz. Si el cron armara
     su propia version, la vista previa podria diferir del correo real y dejaria
     de servir para revisar antes de enviar.
+
+    Tampoco se pasan destinatarios: al no mandarlos, la API responde con los que
+    quedaron configurados desde la interfaz. Asi el correo llega a quien dice la
+    pantalla, no a lo que diga una variable de entorno que nadie recuerda haber
+    puesto.
     """
     params = {"umbral": str(args.umbral)}
     if args.sede:
         params["sede_id"] = args.sede
     url = f"{base_url.rstrip('/')}/reporte/correo?{urllib.parse.urlencode(params)}"
     with urllib.request.urlopen(url, timeout=120) as resp:
-        return json.loads(resp.read().decode("utf-8"))["cuerpo"]
+        return json.loads(resp.read().decode("utf-8"))
 
 
 def main() -> int:
@@ -77,20 +82,25 @@ def main() -> int:
         print(f"Fallo al llamar /reporte: {exc}", file=sys.stderr)
         return 1
 
-    destino = os.getenv("REPORTE_EMAIL_TO")
+    # El destino sale de la configuracion que edita la interfaz; la variable de
+    # entorno queda solo como valor inicial (la API ya cae a ella si no se
+    # guardo nada). El host SMTP si es del servicio y no se toca desde la web.
     host = os.getenv("REPORTE_SMTP_HOST")
+    correo = correo_a_enviar(args.base_url, args) if host else None
+    destino = ", ".join(correo["destinatarios"]) if correo else ""
+
     if destino and host:
         msg = EmailMessage()
-        msg["Subject"] = f"Reporte deserción — sede={args.sede or 'todas'} umbral={args.umbral}"
+        msg["Subject"] = correo["asunto"]
         msg["From"] = os.getenv("REPORTE_SMTP_USER", "noreply@local")
         msg["To"] = destino
         if args.formato == "csv":
-            msg.set_content(resumen_legible(args.base_url, args))
+            msg.set_content(correo["cuerpo"])
             msg.add_attachment(
                 cuerpo.encode("utf-8"),
                 maintype="text",
                 subtype="csv",
-                filename="alerta_temprana.csv",
+                filename=correo["adjunto"]["nombre"],
             )
         else:
             msg.set_content(cuerpo)
@@ -110,10 +120,12 @@ def main() -> int:
         sys.stdout.write(cuerpo)
         if not cuerpo.endswith("\n"):
             sys.stdout.write("\n")
-        print(
-            "(sin SMTP configurado — reporte impreso en stdout)",
-            file=sys.stderr,
+        motivo = (
+            "sin SMTP configurado"
+            if not host
+            else "no hay destinatarios configurados — cargalos en la interfaz"
         )
+        print(f"({motivo} — reporte impreso en stdout)", file=sys.stderr)
 
     return 0
 

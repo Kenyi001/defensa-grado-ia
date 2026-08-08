@@ -111,7 +111,10 @@
   }
   .sr { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
         overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
-  .envio { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 18px; align-items: end; }
+  .envio { display: grid; grid-template-columns: 2fr 1fr auto; gap: 18px; align-items: end; }
+  .acciones-envio { display: flex; gap: 10px; }
+  .acciones-envio button { margin-top: 0; }
+  .ok { color: var(--bajo); font-weight: 600; }
   .previa { margin-top: 18px; background: var(--fondo); border: 1px solid var(--linea);
             border-radius: 8px; padding: 16px 18px; }
   .previa pre { margin: 8px 0 0; white-space: pre-wrap; font-family: Consolas, monospace;
@@ -191,8 +194,7 @@
     <div class="envio">
       <div>
         <label for="destinatarios">Destinatarios (separados por coma)</label>
-        <input type="text" id="destinatarios" placeholder="bienestar@unal.edu, tutorias@unal.edu"
-               value="bienestar@unal.edu">
+        <input type="text" id="destinatarios" placeholder="bienestar@unal.edu, tutorias@unal.edu">
       </div>
       <div>
         <label for="frecuencia">Frecuencia de envío</label>
@@ -203,10 +205,12 @@
           <option value="0 7 1 3,8 *">Al cierre de cada semestre</option>
         </select>
       </div>
-      <div>
+      <div class="acciones-envio">
+        <button id="btnGuardarDestino" type="button">Guardar</button>
         <button id="btnPrevia" class="secundario" type="button">Ver el correo que se enviaría</button>
       </div>
     </div>
+    <p class="nota" id="estadoDestino" role="status" aria-live="polite"></p>
     <div id="previaBox"></div>
     <p class="nota">El envío lo ejecuta un proceso programado en el servidor. Las credenciales del
     servidor de correo se configuran como variables de entorno del servicio — <strong>nunca se
@@ -407,6 +411,52 @@ async function evaluar() {
   }
 }
 
+// Al abrir la pantalla se muestra la configuracion REAL, no un ejemplo: si el
+// campo trajera un placeholder, nadie sabria a quien le esta llegando el reporte.
+async function cargarDestino() {
+  try {
+    const r = await fetch('/reporte/destino');
+    if (!r.ok) throw new Error('el servicio respondió ' + r.status);
+    const d = await r.json();
+    $('destinatarios').value = d.destinatarios.join(', ');
+    if (d.frecuencia) $('frecuencia').value = d.frecuencia;
+    $('estadoDestino').textContent = d.destinatarios.length
+      ? ''
+      : 'Todavía no hay destinatarios configurados: el reporte no se envía a nadie.';
+  } catch (e) {
+    $('estadoDestino').innerHTML =
+      `<span class="error">No se pudo leer la configuración de envío: ${e.message}</span>`;
+  }
+}
+
+async function guardarDestino() {
+  const btn = $('btnGuardarDestino');
+  const est = $('estadoDestino');
+  const destinatarios = $('destinatarios').value.split(',').map(s => s.trim()).filter(Boolean);
+  btn.disabled = true;
+  est.textContent = 'Guardando…';
+  try {
+    const r = await fetch('/reporte/destino', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destinatarios, frecuencia: $('frecuencia').value }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      // La API devuelve la lista de errores concretos: mostrarlos tal cual es
+      // mas util que un "datos invalidos" generico.
+      const errores = Array.isArray(d.detail) ? d.detail.join(' · ') : (d.detail || r.status);
+      throw new Error(errores);
+    }
+    const cuando = $('frecuencia').options[$('frecuencia').selectedIndex].text.toLowerCase();
+    est.innerHTML = `<span class="ok">Guardado.</span> El reporte se enviará ${cuando} a ${d.destinatarios.join(', ')}.`;
+  } catch (e) {
+    est.innerHTML = `<span class="error">No se pudo guardar: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function verPrevia() {
   const box = $('previaBox');
   const dest = $('destinatarios').value;
@@ -444,6 +494,8 @@ $('btnCsv').addEventListener('click', () => {
 });
 
 $('btnPrevia').addEventListener('click', verPrevia);
+$('btnGuardarDestino').addEventListener('click', guardarDestino);
+cargarDestino();
 $('umbral').addEventListener('input', pintar);
 $('capacidad').addEventListener('input', pintar);
 $('sede').addEventListener('change', cargar);

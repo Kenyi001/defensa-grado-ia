@@ -41,3 +41,7 @@ graphify-out/
 # Su contenido se integra a mano en 01_desercion_estudiantil.ipynb por tandas.
 notebooks/_referencia/
 outputs/figuras_referencia/
+
+# Configuracion de envio editada desde la interfaz: es estado de ejecucion,
+# no codigo. Cada despliegue arranca de REPORTE_EMAIL_TO.
+data/destino.json
