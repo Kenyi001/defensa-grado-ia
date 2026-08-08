@@ -155,6 +155,10 @@ class EstudianteReporte(BaseModel):
     clase: Literal["desertor", "no_desertor"]
     carrera: Optional[int] = None
     sede_id: Optional[str] = None
+    # Por que este estudiante esta señalado y que corresponde hacer. Sin esto
+    # el reporte es una lista de probabilidades: no permite actuar.
+    motivos: str = ""
+    accion_sugerida: str = ""
 
 
 class ReporteOutput(BaseModel):

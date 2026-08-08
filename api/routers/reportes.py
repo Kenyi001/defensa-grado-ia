@@ -67,19 +67,57 @@ def reporte(
     )
 
     if formato == "csv":
-        lineas = [
-            "indice,probabilidad_desercion,en_riesgo,clase,carrera,sede_id"
-        ]
-        for e in data["estudiantes"]:
-            lineas.append(
-                f"{e['indice']},{e['probabilidad_desercion']},{int(e['en_riesgo'])},"
-                f"{e['clase']},{e['carrera'] or ''},{e['sede_id'] or ''}"
+        # Este CSV es el que recibe Bienestar Universitario, asi que se arma
+        # para que alguien pueda ACTUAR con el, no para volcar el modelo:
+        #   - prioridad en vez de indice suelto: el orden es el producto
+        #   - probabilidad a 2 decimales: nadie decide con 6
+        #   - nivel de riesgo en palabras, NUNCA la etiqueta "desertor". El
+        #     modelo estima riesgo, no dicta un desenlace; un archivo que
+        #     circula por correo diciendo "desertor" al lado de un nombre es
+        #     un problema real, no un detalle de redaccion.
+        #   - motivos y accion: sin eso no se sabe que hacer con cada caso.
+        import csv
+        import io
+
+        buffer = io.StringIO()
+        w = csv.writer(buffer, lineterminator="\n")
+        w.writerow(
+            [
+                "prioridad",
+                "estudiante_id",
+                "carrera",
+                "sede",
+                "nivel_riesgo",
+                "probabilidad",
+                "motivos",
+                "accion_sugerida",
+            ]
+        )
+        # Solo los señalados. El JSON devuelve la poblacion completa porque otros
+        # sistemas la necesitan, pero el CSV que recibe Bienestar es una lista de
+        # trabajo: mandar tambien a los que no superan el umbral es ruido, y
+        # ademas contradice el resumen ("N estudiantes por encima del umbral").
+        senalados = [e for e in data["estudiantes"] if e["en_riesgo"]]
+        for i, e in enumerate(senalados, start=desplazamiento + 1):
+            p = e["probabilidad_desercion"]
+            nivel = "ALTO" if p >= 0.70 else "MEDIO" if p >= 0.40 else "BAJO"
+            w.writerow(
+                [
+                    i,
+                    f"EST-{e['indice']:05d}",
+                    e["carrera"] or "",
+                    e["sede_id"] or "",
+                    nivel,
+                    f"{p:.2f}",
+                    e.get("motivos", ""),
+                    e.get("accion_sugerida", ""),
+                ]
             )
         return PlainTextResponse(
-            "\n".join(lineas) + "\n",
+            buffer.getvalue(),
             media_type="text/csv",
             headers={
-                "Content-Disposition": 'attachment; filename="reporte_desercion.csv"'
+                "Content-Disposition": 'attachment; filename="alerta_temprana.csv"'
             },
         )
 

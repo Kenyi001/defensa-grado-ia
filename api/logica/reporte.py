@@ -87,6 +87,72 @@ def cargar_poblacion(ruta_csv: str | Path | None = None) -> pd.DataFrame:
     return poblacion_sintetica()
 
 
+# Medianas de quienes SI se graduaron, calculadas sobre el dataset real.
+# Son la referencia contra la que se explica por que un estudiante esta en
+# riesgo: no "porque el modelo lo dice", sino "aprobo 2 de las 6 materias que
+# aprueba la mediana de quienes se graduan".
+REFERENCIA_GRADUADOS = {
+    "Curricular units 1st sem (approved)": 6,
+    "Curricular units 2nd sem (approved)": 6,
+    "Curricular units 2nd sem (grade)": 13,
+}
+
+
+def motivos_y_accion(fila: Any) -> tuple[str, str]:
+    """Explica por que este estudiante esta señalado y que corresponde hacer.
+
+    Devuelve (motivos, accion_sugerida).
+
+    Un listado de probabilidades no es accionable: quien recibe el reporte
+    necesita saber POR QUE. Los motivos se derivan comparando al estudiante
+    contra la mediana de quienes se graduaron.
+
+    Nota de diseño: "no tiene beca" NO se usa como motivo. La mediana de beca
+    entre graduados es 0 y 664 de los 794 matriculados tampoco la tienen, asi
+    que no distingue a nadie. Si funciona como ACCION (Politica 3, becas
+    focalizadas al cuartil de mayor riesgo). Un motivo explica, una accion
+    propone: no son lo mismo.
+    """
+    motivos: list[str] = []
+
+    ap2 = fila.get("Curricular units 2nd sem (approved)")
+    ap1 = fila.get("Curricular units 1st sem (approved)")
+    nota2 = fila.get("Curricular units 2nd sem (grade)")
+    al_dia = fila.get("Tuition fees up to date")
+    deudor = fila.get("Debtor")
+    becado = fila.get("Scholarship holder")
+
+    if ap2 is not None and ap2 < REFERENCIA_GRADUADOS["Curricular units 2nd sem (approved)"]:
+        motivos.append(f"Aprobo {int(ap2)} de 6 materias en el 2do semestre")
+    if ap1 is not None and ap1 < REFERENCIA_GRADUADOS["Curricular units 1st sem (approved)"]:
+        motivos.append(f"Aprobo {int(ap1)} de 6 materias en el 1er semestre")
+    if nota2 is not None and nota2 < REFERENCIA_GRADUADOS["Curricular units 2nd sem (grade)"]:
+        motivos.append(f"Nota promedio {nota2:.1f} en el 2do semestre (referencia: 13)")
+    if al_dia is not None and int(al_dia) == 0:
+        motivos.append("Matricula impaga")
+    if deudor is not None and int(deudor) == 1:
+        motivos.append("Registra deuda con la institucion")
+
+    # La accion sale del motivo dominante, atada a las 3 politicas propuestas.
+    financiero = (al_dia is not None and int(al_dia) == 0) or (
+        deudor is not None and int(deudor) == 1
+    )
+    bajo_rendimiento = ap2 is not None and ap2 < 4
+
+    if financiero:
+        accion = "Alerta financiera preventiva"
+    elif bajo_rendimiento:
+        accion = "Tutoria academica temprana"
+    elif becado is not None and int(becado) == 0 and motivos:
+        accion = "Evaluar beca focalizada"
+    elif motivos:
+        accion = "Seguimiento academico"
+    else:
+        accion = "Sin accion inmediata"
+
+    return " | ".join(motivos) if motivos else "Sin factores de alerta", accion
+
+
 def armar_reporte(
     modelo: Any,
     df_poblacion: pd.DataFrame,
@@ -162,17 +228,25 @@ def armar_reporte(
     ordenado = trabajo.sort_values("probabilidad_desercion", ascending=False)
     pagina = ordenado.iloc[desplazamiento : desplazamiento + limite]
 
-    estudiantes = [
-        {
-            "indice": int(row.indice),
-            "probabilidad_desercion": round(float(row.probabilidad_desercion), 6),
-            "en_riesgo": bool(row.en_riesgo),
-            "clase": row.clase,
-            "carrera": int(row.carrera) if pd.notna(row.carrera) else None,
-            "sede_id": row.sede_id,
-        }
-        for row in pagina.itertuples(index=False)
-    ]
+    # Los motivos se sacan de la fila original del estudiante, que es donde
+    # estan las variables crudas (materias aprobadas, notas, situacion de pago).
+    estudiantes = []
+    for row in pagina.itertuples(index=False):
+        idx = int(row.indice)
+        cruda = df.loc[idx].to_dict() if idx in df.index else {}
+        motivos, accion = motivos_y_accion(cruda)
+        estudiantes.append(
+            {
+                "indice": idx,
+                "probabilidad_desercion": round(float(row.probabilidad_desercion), 6),
+                "en_riesgo": bool(row.en_riesgo),
+                "clase": row.clase,
+                "carrera": int(row.carrera) if pd.notna(row.carrera) else None,
+                "sede_id": row.sede_id,
+                "motivos": motivos,
+                "accion_sugerida": accion,
+            }
+        )
 
     return {
         "agregado": agregado,
