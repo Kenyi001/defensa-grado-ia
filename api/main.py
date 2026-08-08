@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 
 from api.config import MODELO_VERSION, RUTA_DATASET, RUTA_MODELO, UMBRAL_DEFAULT
 from api.logica.prediccion import cargar_paquete
@@ -52,3 +55,15 @@ app = FastAPI(
 app.include_router(salud.router)
 app.include_router(prediccion.router)
 app.include_router(reportes.router)
+
+# La raiz sirve la interfaz de Bienestar Universitario. Sin esta ruta, entrar a
+# la URL del servicio devolvia {"detail":"Not Found"} — correcto para una API,
+# pero da impresion de roto a quien no sabe que las rutas son /salud, /predecir
+# y /reporte. En una demostracion en vivo eso es un problema real.
+INTERFAZ = Path(__file__).resolve().parent / "static" / "index.html"
+
+
+@app.get("/", include_in_schema=False)
+async def interfaz():
+    """Panel de Bienestar Universitario: lista priorizada y evaluacion puntual."""
+    return FileResponse(INTERFAZ)

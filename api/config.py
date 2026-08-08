@@ -20,7 +20,10 @@ RUTA_DATASET = Path(
 MODELO_VERSION = os.getenv("MODELO_VERSION", "v1")
 UMBRAL_DEFAULT = float(os.getenv("UMBRAL_DEFAULT", "0.5"))
 LIMITE_REPORTE_DEFAULT = int(os.getenv("LIMITE_REPORTE_DEFAULT", "50"))
-LIMITE_REPORTE_MAX = int(os.getenv("LIMITE_REPORTE_MAX", "500"))
+# 1000 y no 500: la poblacion de demo son 794 estudiantes y la interfaz los
+# necesita completos para contar bien los niveles de riesgo. Con el tope en 500
+# los indicadores salian mal (los tres niveles sumaban 500 en vez de 794).
+LIMITE_REPORTE_MAX = int(os.getenv("LIMITE_REPORTE_MAX", "1000"))
 
 # Placeholder multi-sede (metadata de peticion; el modelo no las ve).
 SEDES: list[str] = [

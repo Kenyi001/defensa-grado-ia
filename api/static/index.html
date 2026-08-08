@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema de Alerta Temprana · Bienestar Universitario</title>
+<style>
+  /* Paleta UTEPSA. Mismos valores que la presentacion y los widgets SVG.
+     Contrastes verificados con WCAG sobre blanco:
+       rojo #C4001F 6,2:1 · gris #5A5C5E 6,7:1 · tinta #1F2124 16,1:1
+     Sin CDN ni fuentes externas: el dia de la defensa no puede depender
+     de que cargue un recurso de internet. */
+  :root {
+    --rojo: #C4001F;
+    --rojo-suave: #FDECEF;
+    --tinta: #1F2124;
+    --gris: #5A5C5E;
+    --linea: #E3E4E6;
+    --fondo: #F7F7F8;
+    --alto: #B00020;
+    --medio: #A96A00;
+    --bajo: #0F6B4F;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--fondo); color: var(--tinta);
+    font-family: "Segoe UI", Calibri, system-ui, sans-serif;
+    font-size: 15px; line-height: 1.5;
+  }
+  header {
+    background: #fff; border-bottom: 1px solid var(--linea);
+    padding: 18px 28px; display: flex; align-items: center; gap: 16px;
+    flex-wrap: wrap;
+  }
+  .marca { width: 38px; height: 38px; border-radius: 50%; background: var(--rojo);
+           color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 19px; }
+  h1 { font-size: 20px; margin: 0; font-weight: 700; }
+  .sub { color: var(--gris); font-size: 13px; margin: 0; }
+  .estado { margin-left: auto; font-size: 13px; color: var(--gris); display: flex; align-items: center; gap: 7px; }
+  .punto { width: 9px; height: 9px; border-radius: 50%; background: #C9CBCD; }
+  .punto.ok { background: var(--bajo); }
+  .punto.mal { background: var(--alto); }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 28px 60px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .kpi { background: #fff; border: 1px solid var(--linea); border-radius: 10px; padding: 16px 18px; }
+  .kpi .n { font-size: 32px; font-weight: 700; line-height: 1.1; }
+  .kpi .l { font-size: 12.5px; color: var(--gris); margin-top: 3px; }
+
+  .panel { background: #fff; border: 1px solid var(--linea); border-radius: 10px; padding: 20px 22px; margin-bottom: 22px; }
+  .panel h2 { font-size: 16px; margin: 0 0 4px; }
+  .panel .ayuda { font-size: 13px; color: var(--gris); margin: 0 0 18px; }
+
+  .controles { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 22px; align-items: end; }
+  label { display: block; font-size: 12.5px; color: var(--gris); margin-bottom: 6px; font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--rojo); }
+  select, input[type=number] {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--linea);
+    border-radius: 7px; font-size: 14px; font-family: inherit; background: #fff; color: var(--tinta);
+  }
+  .valor-umbral { font-size: 26px; font-weight: 700; color: var(--rojo); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em;
+       color: var(--gris); padding: 9px 10px; border-bottom: 2px solid var(--linea); }
+  td { padding: 10px; border-bottom: 1px solid var(--linea); font-size: 14px; }
+  tbody tr:hover { background: var(--rojo-suave); }
+  .prioridad { font-weight: 700; color: var(--gris); width: 42px; }
+  .barra { height: 7px; border-radius: 4px; background: var(--linea); overflow: hidden; min-width: 90px; }
+  .barra i { display: block; height: 100%; background: var(--rojo); }
+  .etq { font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 20px; white-space: nowrap; }
+  .etq.alto { background: #FDE7EA; color: var(--alto); }
+  .etq.medio { background: #FBF0DC; color: var(--medio); }
+  .etq.bajo { background: #E4F2EC; color: var(--bajo); }
+
+  .dos { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .campos { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  button {
+    background: var(--rojo); color: #fff; border: 0; border-radius: 7px;
+    padding: 11px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
+    font-family: inherit; margin-top: 16px;
+  }
+  button:hover { background: #A50019; }
+  .resultado { margin-top: 18px; padding: 18px; border-radius: 9px; background: var(--fondo); text-align: center; }
+  .resultado .p { font-size: 42px; font-weight: 700; line-height: 1; }
+  .resultado .d { font-size: 13px; color: var(--gris); margin-top: 6px; }
+  .nota { font-size: 12.5px; color: var(--gris); margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--linea); }
+  .cargando { color: var(--gris); font-size: 13.5px; padding: 20px 0; text-align: center; }
+  @media (max-width: 860px) { .controles, .dos { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="marca">U</div>
+  <div>
+    <h1>Sistema de Alerta Temprana</h1>
+    <p class="sub">Bienestar Universitario · Universidad Nacional (UNAL)</p>
+  </div>
+  <div class="estado"><span class="punto" id="punto"></span><span id="estadoTxt">conectando…</span></div>
+</header>
+
+<main>
+
+  <div class="kpis">
+    <div class="kpi"><div class="n" id="kTotal">—</div><div class="l">Estudiantes evaluados</div></div>
+    <div class="kpi"><div class="n" id="kAlto" style="color:var(--alto)">—</div><div class="l">Riesgo alto</div></div>
+    <div class="kpi"><div class="n" id="kMedio" style="color:var(--medio)">—</div><div class="l">Riesgo medio</div></div>
+    <div class="kpi"><div class="n" id="kBajo" style="color:var(--bajo)">—</div><div class="l">Riesgo bajo</div></div>
+  </div>
+
+  <section class="panel">
+    <h2>¿A cuántos podemos atender este semestre?</h2>
+    <p class="ayuda">El sistema no dice quién abandona: <strong>ordena por riesgo</strong>. Mové el umbral según la capacidad real de tutorías — es una decisión institucional, no técnica.</p>
+    <div class="controles">
+      <div>
+        <label for="umbral">Umbral de alerta</label>
+        <input type="range" id="umbral" min="0.30" max="0.80" step="0.05" value="0.50">
+        <div class="valor-umbral" id="umbralTxt">0,50</div>
+      </div>
+      <div>
+        <label for="sede">Sede</label>
+        <select id="sede">
+          <option value="">Todas las sedes</option>
+          <option value="la_paz">La Paz</option>
+          <option value="santa_cruz">Santa Cruz</option>
+          <option value="cochabamba">Cochabamba</option>
+          <option value="tarija">Tarija</option>
+          <option value="el_alto">El Alto</option>
+        </select>
+      </div>
+      <div>
+        <label for="capacidad">Capacidad de tutorías</label>
+        <input type="number" id="capacidad" min="5" max="500" step="5" value="50">
+      </div>
+    </div>
+    <p class="nota" id="resumen">—</p>
+  </section>
+
+  <section class="panel">
+    <h2>Lista priorizada — a quiénes contactar primero</h2>
+    <p class="ayuda">Ordenada de mayor a menor riesgo. Se atiende de arriba hacia abajo hasta donde alcance la capacidad.</p>
+    <div id="tablaBox"><p class="cargando">Cargando…</p></div>
+  </section>
+
+  <section class="panel">
+    <h2>Evaluar un estudiante</h2>
+    <p class="ayuda">Las variables que más pesan según el modelo. El resto se completa con los valores medianos de la cohorte.</p>
+    <div class="dos">
+      <div>
+        <div class="campos">
+          <div>
+            <label for="ap1">Materias aprobadas · 1er semestre</label>
+            <input type="number" id="ap1" min="0" max="20" value="6">
+          </div>
+          <div>
+            <label for="ap2">Materias aprobadas · 2do semestre</label>
+            <input type="number" id="ap2" min="0" max="20" value="6">
+          </div>
+          <div>
+            <label for="nota2">Nota promedio · 2do semestre (0-20)</label>
+            <input type="number" id="nota2" min="0" max="20" step="0.5" value="13">
+          </div>
+          <div>
+            <label for="edad">Edad al matricularse</label>
+            <input type="number" id="edad" min="17" max="70" value="20">
+          </div>
+          <div>
+            <label for="pago">Matrícula al día</label>
+            <select id="pago"><option value="1">Sí</option><option value="0">No</option></select>
+          </div>
+          <div>
+            <label for="beca">Cuenta con beca</label>
+            <select id="beca"><option value="0">No</option><option value="1">Sí</option></select>
+          </div>
+        </div>
+        <button id="btnEval">Evaluar riesgo</button>
+      </div>
+      <div>
+        <div class="resultado">
+          <div class="p" id="evalP">—</div>
+          <div class="d" id="evalD">Completá los datos y pulsá Evaluar</div>
+          <div style="margin-top:12px"><span class="etq" id="evalE"></span></div>
+        </div>
+        <p class="nota">El modelo no decide: estima riesgo. La intervención la decide Bienestar Universitario, y nunca se basa en género, nacionalidad ni en el nivel educativo de los padres.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// Perfil base con los valores medianos de la cohorte. La interfaz solo expone
+// las variables de mayor peso; el resto viaja con estos valores para no pedirle
+// 36 campos a alguien de Bienestar Universitario.
+const BASE = {
+  marital_status:1, application_mode:17, application_order:1, course:9500,
+  daytime_evening_attendance:1, previous_qualification:1, previous_qualification_grade:133.1,
+  nacionality:1, mothers_qualification:19, fathers_qualification:19,
+  mothers_occupation:9, fathers_occupation:9, admission_grade:126.1,
+  displaced:1, educational_special_needs:0, debtor:0, tuition_fees_up_to_date:1,
+  gender:0, scholarship_holder:0, age_at_enrollment:20, international:0,
+  cu_1st_credited:0, cu_1st_enrolled:6, cu_1st_evaluations:8, cu_1st_approved:5,
+  cu_1st_grade:12.29, cu_1st_without_evaluations:0,
+  cu_2nd_credited:0, cu_2nd_enrolled:6, cu_2nd_evaluations:8, cu_2nd_approved:5,
+  cu_2nd_grade:12.20, cu_2nd_without_evaluations:0,
+  unemployment_rate:10.8, inflation_rate:1.4, gdp:1.74
+};
+
+const $ = (id) => document.getElementById(id);
+const pct = (x) => (x * 100).toFixed(1).replace('.', ',') + '%';
+const nivel = (p) => p >= 0.70 ? 'alto' : p >= 0.40 ? 'medio' : 'bajo';
+
+async function salud() {
+  try {
+    const r = await fetch('/salud');
+    const d = await r.json();
+    $('punto').className = 'punto ' + (d.modelo_cargado ? 'ok' : 'mal');
+    $('estadoTxt').textContent = d.modelo_cargado
+      ? 'servicio activo · modelo ' + d.modelo_version
+      : 'modelo no cargado';
+  } catch {
+    $('punto').className = 'punto mal';
+    $('estadoTxt').textContent = 'sin conexión con el servicio';
+  }
+}
+
+let cache = null;   // se pide una vez con umbral bajo y se reclasifica en el navegador
+
+async function cargar() {
+  const sede = $('sede').value;
+  // Se piden todos (no 500): los indicadores de nivel se calculan sobre la
+  // poblacion completa. Con el tope en 500 los tres niveles sumaban 500 y
+  // "riesgo bajo" salia en 0.
+  const q = new URLSearchParams({ umbral: '0.001', limite: '1000' });
+  if (sede) q.set('sede_id', sede);
+  const r = await fetch('/reporte?' + q);
+  cache = await r.json();
+  pintar();
+}
+
+function pintar() {
+  if (!cache) return;
+  const u = parseFloat($('umbral').value);
+  const cap = parseInt($('capacidad').value, 10) || 0;
+  const est = cache.estudiantes;
+
+  $('umbralTxt').textContent = u.toFixed(2).replace('.', ',');
+
+  const alto = est.filter(e => e.probabilidad_desercion >= 0.70).length;
+  const medio = est.filter(e => e.probabilidad_desercion >= 0.40 && e.probabilidad_desercion < 0.70).length;
+  const bajo = est.length - alto - medio;
+  $('kTotal').textContent = cache.total_filtrado;
+  $('kAlto').textContent = alto;
+  $('kMedio').textContent = medio;
+  $('kBajo').textContent = bajo;
+
+  const sobre = est.filter(e => e.probabilidad_desercion >= u);
+  const atendidos = Math.min(cap, sobre.length);
+  const corte = atendidos > 0 ? sobre[atendidos - 1].probabilidad_desercion : u;
+  $('resumen').innerHTML = `Con umbral <strong>${u.toFixed(2).replace('.', ',')}</strong> el sistema señala `
+    + `<strong>${sobre.length}</strong> estudiantes. Con capacidad para <strong>${cap}</strong> tutorías se atiende `
+    + `hasta una probabilidad de <strong>${corte.toFixed(3).replace('.', ',')}</strong>`
+    + (sobre.length > cap ? ` — quedarían <strong>${sobre.length - cap}</strong> sin cupo.` : ` y alcanza para todos los señalados.`);
+
+  const filas = sobre.slice(0, Math.max(cap, 15)).map((e, i) => {
+    const n = nivel(e.probabilidad_desercion);
+    const dentro = i < cap;
+    return `<tr style="${dentro ? '' : 'opacity:.45'}">
+      <td class="prioridad">${i + 1}</td>
+      <td>Estudiante #${e.indice}</td>
+      <td>${e.carrera ?? '—'}</td>
+      <td><div class="barra"><i style="width:${(e.probabilidad_desercion * 100).toFixed(0)}%"></i></div></td>
+      <td><strong>${pct(e.probabilidad_desercion)}</strong></td>
+      <td><span class="etq ${n}">${n.toUpperCase()}</span></td>
+      <td style="color:var(--gris);font-size:12.5px">${dentro ? 'con cupo' : 'sin cupo'}</td>
+    </tr>`;
+  }).join('');
+
+  $('tablaBox').innerHTML = sobre.length === 0
+    ? '<p class="cargando">Ningún estudiante supera este umbral.</p>'
+    : `<table><thead><tr><th>#</th><th>Estudiante</th><th>Carrera</th><th>Riesgo</th>
+       <th>Probabilidad</th><th>Nivel</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table>`;
+}
+
+async function evaluar() {
+  const p = Object.assign({}, BASE, {
+    cu_1st_approved: +$('ap1').value,
+    cu_2nd_approved: +$('ap2').value,
+    cu_2nd_grade: +$('nota2').value,
+    age_at_enrollment: +$('edad').value,
+    tuition_fees_up_to_date: +$('pago').value,
+    debtor: $('pago').value === '0' ? 1 : 0,
+    scholarship_holder: +$('beca').value,
+  });
+  $('evalP').textContent = '…';
+  $('evalD').textContent = 'consultando el modelo';
+  try {
+    const r = await fetch('/predecir', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const n = nivel(d.probabilidad_desercion);
+    $('evalP').textContent = pct(d.probabilidad_desercion);
+    $('evalP').style.color = n === 'alto' ? 'var(--alto)' : n === 'medio' ? 'var(--medio)' : 'var(--bajo)';
+    $('evalD').textContent = 'probabilidad estimada de abandono';
+    $('evalE').textContent = 'RIESGO ' + n.toUpperCase();
+    $('evalE').className = 'etq ' + n;
+  } catch (e) {
+    $('evalP').textContent = '—';
+    $('evalD').textContent = 'no se pudo evaluar: ' + e.message;
+    $('evalE').textContent = '';
+  }
+}
+
+$('umbral').addEventListener('input', pintar);
+$('capacidad').addEventListener('input', pintar);
+$('sede').addEventListener('change', cargar);
+$('btnEval').addEventListener('click', evaluar);
+
+salud();
+cargar();
+</script>
+</body>
+</html>
