@@ -198,6 +198,60 @@ def test_destino_rechaza_datos_invalidos(client: TestClient, tmp_path, monkeypat
     assert r.status_code == 422
 
 
+def test_enviar_sin_smtp_avisa_en_vez_de_romper(client: TestClient, monkeypatch) -> None:
+    """Sin servidor de correo el envio responde 503, no 500.
+
+    La diferencia importa: 500 dice "el sistema esta roto", 503 dice "falta
+    configurar el correo". La interfaz usa eso para ocultar el boton en vez de
+    ofrecer algo que no puede funcionar.
+    """
+    monkeypatch.delenv("REPORTE_SMTP_HOST", raising=False)
+    r = client.post("/reporte/enviar", params={"umbral": 0.5})
+    assert r.status_code == 503
+    assert "servidor de correo" in r.json()["detail"]
+
+    # Y la interfaz se entera por /reporte/destino.
+    assert client.get("/reporte/destino").json()["envio_disponible"] is False
+
+
+def test_enviar_usa_los_destinatarios_configurados(client: TestClient, tmp_path, monkeypatch) -> None:
+    """El envio no acepta destinatarios por parametro: manda a los guardados.
+
+    Un endpoint que acepta destinatarios arbitrarios por HTTP es un relay de
+    correo abierto. Se verifica en el contrato para que no se relaje despues.
+    """
+    from api.logica import destino as mod_destino
+    from api.logica import envio as mod_envio
+
+    monkeypatch.setattr(mod_destino, "RUTA_DESTINO", tmp_path / "destino.json")
+    client.put(
+        "/reporte/destino",
+        json={"destinatarios": ["bienestar@utepsa.edu"], "frecuencia": "0 7 * * 1"},
+    )
+
+    capturado: dict = {}
+
+    monkeypatch.setenv("REPORTE_SMTP_HOST", "smtp.ejemplo.invalido")
+    monkeypatch.setattr(
+        mod_envio,
+        "enviar",
+        lambda correo, csv: capturado.update(correo=correo, csv=csv)
+        or {"enviado": True, **{k: correo[k] for k in ("destinatarios", "asunto", "adjunto")}},
+    )
+    # El router importo `enviar` por nombre: hay que sustituirlo ahi tambien.
+    from api.routers import reportes as mod_router
+
+    monkeypatch.setattr(mod_router, "enviar", mod_envio.enviar)
+
+    r = client.post("/reporte/enviar", params={"umbral": 0.5})
+    assert r.status_code == 200
+    assert r.json()["destinatarios"] == ["bienestar@utepsa.edu"]
+    # El adjunto es el MISMO CSV que se descarga de la pantalla.
+    assert capturado["csv"].splitlines()[0] == (
+        "prioridad,estudiante_id,carrera,sede,nivel_riesgo,probabilidad,motivos,accion_sugerida"
+    )
+
+
 def test_vista_previa_y_csv_cuentan_lo_mismo(client: TestClient) -> None:
     """La vista previa no puede diferir del adjunto real.
 

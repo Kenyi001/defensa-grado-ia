@@ -208,11 +208,15 @@
       <div class="acciones-envio">
         <button id="btnGuardarDestino" type="button">Guardar</button>
         <button id="btnPrevia" class="secundario" type="button">Ver el correo que se enviaría</button>
+        <button id="btnEnviar" class="secundario" type="button" hidden>Enviar ahora</button>
       </div>
     </div>
     <p class="nota" id="estadoDestino" role="status" aria-live="polite"></p>
     <div id="previaBox"></div>
-    <p class="nota">El envío lo ejecuta un proceso programado en el servidor. Las credenciales del
+    <p class="nota" id="sinSmtp" hidden>Este servicio no tiene servidor de correo configurado,
+    así que <strong>no puede enviar</strong>: se puede revisar el correo exacto que saldría, pero
+    el envío requiere configurar <code>REPORTE_SMTP_HOST</code> en el servicio.</p>
+    <p class="nota">El envío programado lo ejecuta un proceso en el servidor. Las credenciales del
     servidor de correo se configuran como variables de entorno del servicio — <strong>nunca se
     piden desde esta pantalla</strong>.</p>
   </section>
@@ -420,6 +424,10 @@ async function cargarDestino() {
     const d = await r.json();
     $('destinatarios').value = d.destinatarios.join(', ');
     if (d.frecuencia) $('frecuencia').value = d.frecuencia;
+    // "Enviar ahora" solo aparece si el servicio tiene servidor de correo.
+    // Un botón que no puede funcionar es peor que no tenerlo.
+    $('btnEnviar').hidden = !d.envio_disponible;
+    $('sinSmtp').hidden = !!d.envio_disponible;
     $('estadoDestino').textContent = d.destinatarios.length
       ? ''
       : 'Todavía no hay destinatarios configurados: el reporte no se envía a nadie.';
@@ -493,8 +501,45 @@ $('btnCsv').addEventListener('click', () => {
   window.location.href = '/reporte?' + q;
 });
 
+// Enviar es irreversible: se confirma con los destinatarios a la vista, no con
+// un "¿estás seguro?" que nadie lee.
+async function enviarAhora() {
+  const dest = $('destinatarios').value.split(',').map(s => s.trim()).filter(Boolean);
+  const sede = $('sede').value;
+  const u = parseFloat($('umbral').value);
+  if (!dest.length) {
+    $('estadoDestino').innerHTML = '<span class="error">Cargá al menos un destinatario antes de enviar.</span>';
+    return;
+  }
+  const ok = confirm(
+    `Se enviará el reporte ahora a:\n\n${dest.join('\n')}\n\n` +
+    `Umbral ${u.toFixed(2).replace('.', ',')} · ${sede || 'todas las sedes'}\n\n` +
+    `Se envía a los destinatarios GUARDADOS. Si los cambiaste recién, guardá primero.`
+  );
+  if (!ok) return;
+
+  const btn = $('btnEnviar');
+  btn.disabled = true;
+  $('estadoDestino').textContent = 'Enviando…';
+  try {
+    const q = new URLSearchParams({ umbral: String(u) });
+    if (sede) q.set('sede_id', sede);
+    const r = await fetch('/reporte/enviar?' + q, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('el servicio respondió ' + r.status));
+    $('estadoDestino').innerHTML =
+      `<span class="ok">Enviado</span> a ${d.destinatarios.join(', ')} — ` +
+      `${d.adjunto.filas} estudiantes en el adjunto.`;
+  } catch (e) {
+    $('estadoDestino').innerHTML = `<span class="error">No se pudo enviar: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 $('btnPrevia').addEventListener('click', verPrevia);
 $('btnGuardarDestino').addEventListener('click', guardarDestino);
+$('btnEnviar').addEventListener('click', enviarAhora);
 cargarDestino();
 $('umbral').addEventListener('input', pintar);
 $('capacidad').addEventListener('input', pintar);
