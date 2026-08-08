@@ -108,3 +108,55 @@ def test_reporte_json(client: TestClient) -> None:
     assert "agregado" in body
     assert body["agregado"]["sede_id"] == "cochabamba"
     assert body["agregado"]["total"] >= 0
+
+
+def test_reporte_csv_nunca_etiqueta_desertor(client: TestClient) -> None:
+    """El CSV que recibe Bienestar no puede rotular a nadie como 'desertor'.
+
+    El modelo estima riesgo; un archivo que circula por correo diciendo
+    'desertor' al lado de un estudiante contradice la seccion etica del
+    trabajo. Se verifica en el contrato, no solo por convencion.
+    """
+    r = client.get("/reporte", params={"umbral": 0.5, "formato": "csv"})
+    assert r.status_code == 200
+    texto = r.text
+    assert "desertor" not in texto.lower()
+    cabecera = texto.splitlines()[0]
+    assert cabecera == (
+        "prioridad,estudiante_id,carrera,sede,nivel_riesgo,"
+        "probabilidad,motivos,accion_sugerida"
+    )
+    # Solo se exportan los señalados: cada fila supera el umbral.
+    for linea in texto.splitlines()[1:]:
+        if not linea.strip():
+            continue
+        assert linea.split(",")[4] in ("ALTO", "MEDIO", "BAJO")
+
+
+def test_vista_previa_correo(client: TestClient) -> None:
+    """La vista previa tiene que traer el correo completo y los destinatarios
+    que se le pasan desde la interfaz, sin enviarlo."""
+    r = client.get(
+        "/reporte/correo",
+        params={"umbral": 0.5, "destinatarios": "bienestar@u.edu, tutorias@u.edu"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["destinatarios"] == ["bienestar@u.edu", "tutorias@u.edu"]
+    assert body["adjunto"]["nombre"] == "alerta_temprana.csv"
+    assert "Reporte de alerta temprana" in body["cuerpo"]
+    # El descargo etico viaja en el cuerpo, no es opcional.
+    assert "No es un pronostico" in body["cuerpo"]
+
+
+def test_vista_previa_y_csv_cuentan_lo_mismo(client: TestClient) -> None:
+    """La vista previa no puede diferir del adjunto real.
+
+    Si el numero del resumen y las filas del CSV no coinciden, la vista previa
+    deja de servir para revisar antes de enviar — que es su unica razon de ser.
+    """
+    params = {"umbral": 0.5}
+    previa = client.get("/reporte/correo", params=params).json()
+    csv = client.get("/reporte", params={**params, "formato": "csv", "limite": 1000}).text
+    filas = len([l for l in csv.splitlines()[1:] if l.strip()])
+    assert previa["adjunto"]["filas"] == filas

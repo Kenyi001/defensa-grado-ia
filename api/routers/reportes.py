@@ -8,10 +8,48 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
 from api.config import LIMITE_REPORTE_DEFAULT, LIMITE_REPORTE_MAX, SEDES, UMBRAL_DEFAULT
-from api.logica.reporte import armar_reporte
+from api.logica.reporte import armar_reporte, resumen_correo
 from api.schemas import ReporteOutput
 
 router = APIRouter(tags=["reportes"])
+
+
+@router.get("/reporte/correo", response_model=None)
+def vista_previa_correo(
+    request: Request,
+    sede_id: Optional[str] = Query(default=None, max_length=64),
+    umbral: float = Query(default=UMBRAL_DEFAULT, ge=0, le=1),
+    destinatarios: str = Query(default="", max_length=300),
+):
+    """Devuelve el correo exacto que recibiria Bienestar, sin enviarlo.
+
+    Existe para que el operador pueda revisar el contenido antes de programar
+    el envio. El envio real lo hace el cron job, con las credenciales SMTP en
+    variables de entorno del servicio: **nunca se piden por la interfaz**.
+    """
+    estado = request.app.state
+    if getattr(estado, "poblacion", None) is None:
+        raise HTTPException(status_code=503, detail="Poblacion de reporte no disponible")
+
+    data = armar_reporte(
+        estado.modelo,
+        estado.poblacion,
+        umbral=umbral,
+        sede_id=sede_id,
+        limite=LIMITE_REPORTE_MAX,
+        modelo_version=estado.modelo_version,
+    )
+    senalados = [e for e in data["estudiantes"] if e["en_riesgo"]]
+    sede_txt = sede_id or "todas las sedes"
+    return {
+        "asunto": f"Alerta temprana de desercion - {sede_txt}",
+        "destinatarios": [d.strip() for d in destinatarios.split(",") if d.strip()],
+        "cuerpo": resumen_correo(data["estudiantes"], umbral, sede_id),
+        "adjunto": {
+            "nombre": "alerta_temprana.csv",
+            "filas": len(senalados),
+        },
+    }
 
 
 @router.get("/reporte", response_model=None)

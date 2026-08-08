@@ -153,6 +153,55 @@ def motivos_y_accion(fila: Any) -> tuple[str, str]:
     return " | ".join(motivos) if motivos else "Sin factores de alerta", accion
 
 
+def resumen_correo(
+    estudiantes: list[dict[str, Any]],
+    umbral: float,
+    sede_id: Optional[str] = None,
+) -> str:
+    """Cuerpo del correo que recibe Bienestar Universitario.
+
+    Vive en la API y no en el script del cron para que la interfaz pueda
+    mostrar exactamente el mismo texto que se enviaria: si el operador ve una
+    vista previa distinta del correo real, la vista previa no sirve.
+    """
+    senalados = [e for e in estudiantes if e.get("en_riesgo")]
+    total = len(senalados)
+    alto = sum(1 for e in senalados if e["probabilidad_desercion"] >= 0.70)
+    medio = total - alto
+
+    acciones: dict[str, int] = {}
+    for e in senalados:
+        a = e.get("accion_sugerida", "")
+        if a:
+            acciones[a] = acciones.get(a, 0) + 1
+    detalle = "\n".join(
+        f"  - {a}: {n} estudiantes"
+        for a, n in sorted(acciones.items(), key=lambda kv: -kv[1])
+    ) or "  - sin acciones sugeridas"
+
+    sede = sede_id or "todas las sedes"
+    return f"""Reporte de alerta temprana - {sede}
+
+Se identificaron {total} estudiantes por encima del umbral {umbral:.2f}:
+  - Riesgo alto:  {alto}
+  - Riesgo medio: {medio}
+
+Acciones sugeridas:
+{detalle}
+
+El archivo adjunto trae la lista completa ordenada por prioridad, con el motivo
+de cada caso y la accion que corresponde. Se atiende de arriba hacia abajo hasta
+donde alcance la capacidad del periodo.
+
+---
+Este reporte estima RIESGO a partir del desempeno academico y la situacion
+financiera del estudiante. No es un pronostico sobre ninguna persona en
+particular ni una decision tomada: la intervencion la define Bienestar
+Universitario. No se emplean genero, nacionalidad ni nivel educativo de los
+padres como criterio de priorizacion.
+"""
+
+
 def armar_reporte(
     modelo: Any,
     df_poblacion: pd.DataFrame,

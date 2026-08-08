@@ -16,6 +16,7 @@ REPORTE_SMTP_PASS, REPORTE_EMAIL_TO. Si no hay SMTP, escribe a stdout.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import smtplib
 import sys
@@ -25,50 +26,20 @@ import urllib.request
 from email.message import EmailMessage
 
 
-def resumen_legible(csv_texto: str, args) -> str:
-    """Cuerpo del correo: el resumen que lee una persona, no el volcado.
+def resumen_legible(base_url: str, args) -> str:
+    """Cuerpo del correo, pedido a la API.
 
-    Quien recibe esto es el area de Bienestar Universitario. El adjunto trae el
-    detalle para trabajar en Excel; el cuerpo tiene que responder de un vistazo
-    cuantos casos hay y de que tipo. Se cierra siempre con la aclaracion de que
-    es una estimacion de riesgo y no un veredicto sobre el estudiante.
+    Se consulta /reporte/correo en vez de recalcularlo aca a proposito: es el
+    mismo texto que muestra la vista previa de la interfaz. Si el cron armara
+    su propia version, la vista previa podria diferir del correo real y dejaria
+    de servir para revisar antes de enviar.
     """
-    filas = [f for f in csv_texto.strip().splitlines()[1:] if f]
-    total = len(filas)
-    alto = sum(1 for f in filas if ",ALTO," in f)
-    medio = sum(1 for f in filas if ",MEDIO," in f)
-
-    acciones: dict[str, int] = {}
-    for f in filas:
-        partes = f.rsplit(",", 1)
-        if len(partes) == 2:
-            acciones[partes[1]] = acciones.get(partes[1], 0) + 1
-    detalle = "\n".join(
-        f"  - {a}: {n} estudiantes"
-        for a, n in sorted(acciones.items(), key=lambda kv: -kv[1])
-    )
-
-    sede = args.sede or "todas las sedes"
-    return f"""Reporte de alerta temprana - {sede}
-
-Se identificaron {total} estudiantes por encima del umbral {args.umbral:.2f}:
-  - Riesgo alto:  {alto}
-  - Riesgo medio: {medio}
-
-Acciones sugeridas:
-{detalle}
-
-El archivo adjunto trae la lista completa ordenada por prioridad, con el motivo
-de cada caso y la accion que corresponde. Se atiende de arriba hacia abajo hasta
-donde alcance la capacidad del periodo.
-
----
-Este reporte estima RIESGO a partir del desempeno academico y la situacion
-financiera del estudiante. No es un pronostico sobre ninguna persona en
-particular ni una decision tomada: la intervencion la define Bienestar
-Universitario. No se emplean genero, nacionalidad ni nivel educativo de los
-padres como criterio de priorizacion.
-"""
+    params = {"umbral": str(args.umbral)}
+    if args.sede:
+        params["sede_id"] = args.sede
+    url = f"{base_url.rstrip('/')}/reporte/correo?{urllib.parse.urlencode(params)}"
+    with urllib.request.urlopen(url, timeout=120) as resp:
+        return json.loads(resp.read().decode("utf-8"))["cuerpo"]
 
 
 def main() -> int:
@@ -114,7 +85,7 @@ def main() -> int:
         msg["From"] = os.getenv("REPORTE_SMTP_USER", "noreply@local")
         msg["To"] = destino
         if args.formato == "csv":
-            msg.set_content(resumen_legible(cuerpo, args))
+            msg.set_content(resumen_legible(args.base_url, args))
             msg.add_attachment(
                 cuerpo.encode("utf-8"),
                 maintype="text",

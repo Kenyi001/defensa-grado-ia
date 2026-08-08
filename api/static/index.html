@@ -54,13 +54,18 @@
   .controles { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 22px; align-items: end; }
   label { display: block; font-size: 12.5px; color: var(--gris); margin-bottom: 6px; font-weight: 600; }
   input[type=range] { width: 100%; accent-color: var(--rojo); }
-  select, input[type=number] {
+  /* box-sizing para que el 100% no desborde por el padding y el borde */
+  select, input[type=number], input[type=text], input[type=email] {
+    box-sizing: border-box;
     width: 100%; padding: 8px 10px; border: 1px solid var(--linea);
     border-radius: 7px; font-size: 14px; font-family: inherit; background: #fff; color: var(--tinta);
   }
   .valor-umbral { font-size: 26px; font-weight: 700; color: var(--rojo); }
 
-  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  /* La tabla tiene 7 columnas: en pantallas angostas scrollea DENTRO de su caja.
+     Si no, la pagina entera se desplaza en horizontal y se pierde el resto. */
+  #tablaBox { overflow-x: auto; }
+  table { width: 100%; min-width: 660px; border-collapse: collapse; margin-top: 6px; }
   th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em;
        color: var(--gris); padding: 9px 10px; border-bottom: 2px solid var(--linea); }
   td { padding: 10px; border-bottom: 1px solid var(--linea); font-size: 14px; }
@@ -86,6 +91,38 @@
   .resultado .d { font-size: 13px; color: var(--gris); margin-top: 6px; }
   .nota { font-size: 12.5px; color: var(--gris); margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--linea); }
   .cargando { color: var(--gris); font-size: 13.5px; padding: 20px 0; text-align: center; }
+
+  /* --- Estados de carga, vacio y error (buenas practicas de dashboard) --- */
+  /* El esqueleto mantiene la altura del layout mientras carga: si se colapsa,
+     la pagina "salta" cuando llegan los datos. */
+  .skel { height: 14px; border-radius: 4px; background: linear-gradient(90deg,#EEE 25%,#F6F6F7 50%,#EEE 75%);
+          background-size: 200% 100%; animation: brillo 1.3s ease-in-out infinite; }
+  @keyframes brillo { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+  .vacio { text-align: center; padding: 34px 20px; color: var(--gris); }
+  .vacio strong { display: block; color: var(--tinta); font-size: 15px; margin-bottom: 4px; }
+  .error { background: #FDECEF; border: 1px solid var(--alto); color: var(--alto);
+           border-radius: 8px; padding: 12px 14px; font-size: 13.5px; }
+  /* Los numeros se alinean a la derecha para poder compararlos de un vistazo */
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Foco visible: la interfaz tiene que poder recorrerse con teclado */
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 3px solid var(--rojo); outline-offset: 2px;
+  }
+  .sr { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+        overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+  .envio { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 18px; align-items: end; }
+  .previa { margin-top: 18px; background: var(--fondo); border: 1px solid var(--linea);
+            border-radius: 8px; padding: 16px 18px; }
+  .previa pre { margin: 8px 0 0; white-space: pre-wrap; font-family: Consolas, monospace;
+                font-size: 12.5px; color: var(--tinta); line-height: 1.5; }
+  .previa .meta { font-size: 12.5px; color: var(--gris); }
+  .cabecera-panel { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+  .cabecera-panel h2 { margin-top: 0; }
+  .cabecera-panel button { flex: none; white-space: nowrap; }
+  .secundario { background: #fff; color: var(--rojo); border: 1px solid var(--rojo); }
+  .secundario:hover { background: var(--rojo-suave); }
+  @media (max-width: 860px) { .envio { grid-template-columns: 1fr; } }
   @media (max-width: 860px) { .controles, .dos { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -97,7 +134,7 @@
     <h1>Sistema de Alerta Temprana</h1>
     <p class="sub">Bienestar Universitario · Universidad Nacional (UNAL)</p>
   </div>
-  <div class="estado"><span class="punto" id="punto"></span><span id="estadoTxt">conectando…</span></div>
+  <div class="estado" role="status" aria-live="polite"><span class="punto" id="punto"></span><span id="estadoTxt">conectando…</span></div>
 </header>
 
 <main>
@@ -134,13 +171,46 @@
         <input type="number" id="capacidad" min="5" max="500" step="5" value="50">
       </div>
     </div>
-    <p class="nota" id="resumen">—</p>
+    <p class="nota" id="resumen" role="status" aria-live="polite">—</p>
   </section>
 
   <section class="panel">
-    <h2>Lista priorizada — a quiénes contactar primero</h2>
-    <p class="ayuda">Ordenada de mayor a menor riesgo. Se atiende de arriba hacia abajo hasta donde alcance la capacidad.</p>
+    <div class="cabecera-panel">
+      <div>
+        <h2>Lista priorizada — a quiénes contactar primero</h2>
+        <p class="ayuda">Ordenada de mayor a menor riesgo. Se atiende de arriba hacia abajo hasta donde alcance la capacidad.</p>
+      </div>
+      <button id="btnCsv" class="secundario" type="button">Descargar CSV</button>
+    </div>
     <div id="tablaBox"><p class="cargando">Cargando…</p></div>
+  </section>
+
+  <section class="panel">
+    <h2>¿A quién se le envía este reporte?</h2>
+    <p class="ayuda">El reporte se envía automáticamente según la frecuencia elegida. Podés revisar el contenido exacto antes de programarlo.</p>
+    <div class="envio">
+      <div>
+        <label for="destinatarios">Destinatarios (separados por coma)</label>
+        <input type="text" id="destinatarios" placeholder="bienestar@unal.edu, tutorias@unal.edu"
+               value="bienestar@unal.edu">
+      </div>
+      <div>
+        <label for="frecuencia">Frecuencia de envío</label>
+        <select id="frecuencia">
+          <option value="0 7 * * 1">Cada lunes, 7:00</option>
+          <option value="0 7 1,15 * *">Quincenal (1 y 15)</option>
+          <option value="0 7 1 * *">Mensual (día 1)</option>
+          <option value="0 7 1 3,8 *">Al cierre de cada semestre</option>
+        </select>
+      </div>
+      <div>
+        <button id="btnPrevia" class="secundario" type="button">Ver el correo que se enviaría</button>
+      </div>
+    </div>
+    <div id="previaBox"></div>
+    <p class="nota">El envío lo ejecuta un proceso programado en el servidor. Las credenciales del
+    servidor de correo se configuran como variables de entorno del servicio — <strong>nunca se
+    piden desde esta pantalla</strong>.</p>
   </section>
 
   <section class="panel">
@@ -227,16 +297,34 @@ async function salud() {
 
 let cache = null;   // se pide una vez con umbral bajo y se reclasifica en el navegador
 
+function esqueleto(filas = 8) {
+  // Mantiene la altura mientras carga: si el bloque se colapsa, la pagina
+  // "salta" cuando llegan los datos y se pierde el punto de lectura.
+  const fila = '<tr>' + Array(7).fill('<td><div class="skel"></div></td>').join('') + '</tr>';
+  return `<table aria-busy="true"><tbody>${Array(filas).fill(fila).join('')}</tbody></table>`;
+}
+
 async function cargar() {
   const sede = $('sede').value;
+  $('tablaBox').innerHTML = esqueleto();
   // Se piden todos (no 500): los indicadores de nivel se calculan sobre la
   // poblacion completa. Con el tope en 500 los tres niveles sumaban 500 y
   // "riesgo bajo" salia en 0.
   const q = new URLSearchParams({ umbral: '0.001', limite: '1000' });
   if (sede) q.set('sede_id', sede);
-  const r = await fetch('/reporte?' + q);
-  cache = await r.json();
-  pintar();
+  try {
+    const r = await fetch('/reporte?' + q);
+    if (!r.ok) throw new Error('el servicio respondió ' + r.status);
+    cache = await r.json();
+    pintar();
+  } catch (e) {
+    // El error se muestra, no se traga: si la tabla queda vacia sin explicacion
+    // nadie sabe si no hay datos o si algo fallo.
+    cache = null;
+    $('tablaBox').innerHTML =
+      `<div class="error" role="alert"><strong>No se pudieron cargar los datos.</strong><br>${e.message}
+       — revisá que el servicio esté activo y volvé a intentar.</div>`;
+  }
 }
 
 function pintar() {
@@ -266,21 +354,26 @@ function pintar() {
   const filas = sobre.slice(0, Math.max(cap, 15)).map((e, i) => {
     const n = nivel(e.probabilidad_desercion);
     const dentro = i < cap;
-    return `<tr style="${dentro ? '' : 'opacity:.45'}">
-      <td class="prioridad">${i + 1}</td>
-      <td>Estudiante #${e.indice}</td>
+    return `<tr style="${dentro ? '' : 'opacity:.55'}">
+      <td class="prioridad num">${i + 1}</td>
+      <td>EST-${String(e.indice).padStart(5, '0')}</td>
       <td>${e.carrera ?? '—'}</td>
-      <td><div class="barra"><i style="width:${(e.probabilidad_desercion * 100).toFixed(0)}%"></i></div></td>
-      <td><strong>${pct(e.probabilidad_desercion)}</strong></td>
+      <td><div class="barra" role="img"
+           aria-label="riesgo ${pct(e.probabilidad_desercion)}"><i style="width:${(e.probabilidad_desercion * 100).toFixed(0)}%"></i></div></td>
+      <td class="num"><strong>${pct(e.probabilidad_desercion)}</strong></td>
       <td><span class="etq ${n}">${n.toUpperCase()}</span></td>
       <td style="color:var(--gris);font-size:12.5px">${dentro ? 'con cupo' : 'sin cupo'}</td>
     </tr>`;
   }).join('');
 
+  // Estado vacio con explicacion y salida, no solo "no hay datos".
   $('tablaBox').innerHTML = sobre.length === 0
-    ? '<p class="cargando">Ningún estudiante supera este umbral.</p>'
-    : `<table><thead><tr><th>#</th><th>Estudiante</th><th>Carrera</th><th>Riesgo</th>
-       <th>Probabilidad</th><th>Nivel</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table>`;
+    ? `<div class="vacio"><strong>Ningún estudiante supera el umbral ${u.toFixed(2).replace('.', ',')}</strong>
+       Bajá el umbral para ampliar la lista, o revisá el filtro de sede.</div>`
+    : `<table><caption class="sr">Estudiantes ordenados por riesgo de abandono</caption>
+       <thead><tr><th class="num" scope="col">#</th><th scope="col">Estudiante</th><th scope="col">Carrera</th>
+       <th scope="col">Riesgo</th><th class="num" scope="col">Probabilidad</th><th scope="col">Nivel</th>
+       <th scope="col">Estado</th></tr></thead><tbody>${filas}</tbody></table>`;
 }
 
 async function evaluar() {
@@ -314,6 +407,43 @@ async function evaluar() {
   }
 }
 
+async function verPrevia() {
+  const box = $('previaBox');
+  const dest = $('destinatarios').value;
+  const sede = $('sede').value;
+  const u = parseFloat($('umbral').value);
+  box.innerHTML = '<div class="previa"><div class="skel" style="height:60px"></div></div>';
+  try {
+    const q = new URLSearchParams({ umbral: String(u), destinatarios: dest });
+    if (sede) q.set('sede_id', sede);
+    const r = await fetch('/reporte/correo?' + q);
+    if (!r.ok) throw new Error('el servicio respondió ' + r.status);
+    const d = await r.json();
+    const cuando = $('frecuencia').options[$('frecuencia').selectedIndex].text;
+    box.innerHTML = `<div class="previa">
+      <div class="meta"><strong>Para:</strong> ${d.destinatarios.join(', ') || '(sin destinatarios)'}
+        &nbsp;·&nbsp; <strong>Asunto:</strong> ${d.asunto}
+        &nbsp;·&nbsp; <strong>Adjunto:</strong> ${d.adjunto.nombre} (${d.adjunto.filas} estudiantes)
+        &nbsp;·&nbsp; <strong>Envío:</strong> ${cuando}</div>
+      <pre>${d.cuerpo.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</pre>
+    </div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="error" role="alert">No se pudo generar la vista previa: ${e.message}</div>`;
+  }
+}
+
+// El CSV se pide con el mismo umbral y la misma sede que hay en pantalla:
+// lo que se descarga tiene que ser lo que se esta viendo.
+$('btnCsv').addEventListener('click', () => {
+  const q = new URLSearchParams({
+    umbral: $('umbral').value, formato: 'csv', limite: '1000',
+  });
+  const sede = $('sede').value;
+  if (sede) q.set('sede_id', sede);
+  window.location.href = '/reporte?' + q;
+});
+
+$('btnPrevia').addEventListener('click', verPrevia);
 $('umbral').addEventListener('input', pintar);
 $('capacidad').addEventListener('input', pintar);
 $('sede').addEventListener('change', cargar);
