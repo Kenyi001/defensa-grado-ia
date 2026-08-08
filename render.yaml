@@ -1,5 +1,12 @@
-# Blueprint Render — Web Service (conectar el repo desde el dashboard).
-# No despliega solo: hay que vincular el repositorio en Render manualmente.
+# Blueprint Render — Web Service.
+#
+# ⚠️ ESTE ARCHIVO DOCUMENTA LA CONFIGURACION, PERO NO LA GOBIERNA.
+# El servicio se creo por API, no desde este Blueprint, asi que Render NO lo
+# esta aplicando: el `healthCheckPath` declarado abajo, por ejemplo, esta vacio
+# en el servicio real. Para que la infraestructura sea de verdad codigo hay que
+# vincular el repo desde el dashboard (Blueprints -> New Blueprint Instance).
+# Se pospuso a proposito: al sincronizar, Render puede borrar variables de
+# entorno que se cargaron por fuera del archivo.
 #
 # El modelo real (models/random_forest_v1.joblib) esta versionado en el repo,
 # por lo que el build NO entrena nada: solo instala dependencias y arranca.
@@ -26,3 +33,18 @@ services:
         value: "0.5"
       - key: DATASET_PATH
         value: data/demo/estudiantes_matriculados.csv
+      # Destinatario inicial del reporte. Es solo el valor de arranque: se
+      # edita desde la interfaz y se guarda en DESTINO_PATH.
+      - key: REPORTE_EMAIL_TO
+        value: bienestar@utepsa.edu
+    # El disco hace que los destinatarios sobrevivan a un redespliegue. Sin el
+    # (plan gratuito), la configuracion vuelve a REPORTE_EMAIL_TO cada vez.
+    # Requiere un plan de pago; queda declarado para cuando lo haya.
+    # disk:
+    #   name: datos
+    #   mountPath: /opt/render/project/src/data
+    #   sizeGB: 1
+    # Con disco, ademas: DESTINO_PATH=/opt/render/project/src/data/destino.json
+    #
+    # NO HAY CRON JOB, a proposito: el reporte se envia cuando alguien lo decide
+    # desde el panel. Ver POST /reporte/enviar.

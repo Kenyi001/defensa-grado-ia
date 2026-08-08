@@ -1,13 +1,17 @@
-"""A quien y cada cuanto se envia el reporte: configuracion editable.
+"""A quien se le envia el reporte: configuracion editable desde la interfaz.
 
 Separado de config.py a proposito. config.py son parametros del servicio que
-fija quien lo despliega; esto son decisiones de gestion que cambia el area de
+fija quien lo despliega; esto es una decision de gestion que cambia el area de
 Bienestar sin pedirle nada a nadie. No es la misma clase de cosa.
 
 QUE NO VIVE ACA: las credenciales SMTP. Van como variables de entorno del
 servicio (REPORTE_SMTP_HOST/USER/PASS) y no se leen ni se escriben desde la
 interfaz. Una pantalla que le pide a un operador la contrasena del servidor de
 correo es un problema de seguridad, no una funcionalidad.
+
+NO HAY FRECUENCIA DE ENVIO, a proposito: el reporte se envia cuando alguien lo
+decide desde el panel, no en automatico. Automatizar un envio que nadie reviso
+antes es como un sistema de alerta se convierte en ruido que se ignora.
 """
 
 from __future__ import annotations
@@ -27,15 +31,6 @@ from api.config import RAIZ_PROYECTO
 # y se resuelve con un disco persistente o una tabla — no con mas codigo aca.
 RUTA_DESTINO = Path(os.getenv("DESTINO_PATH", str(RAIZ_PROYECTO / "data" / "destino.json")))
 
-# Cada cuanto se envia. La clave es la expresion cron que consume Render.
-FRECUENCIAS: dict[str, str] = {
-    "0 7 * * 1": "Cada lunes, 7:00",
-    "0 7 1,15 * *": "Quincenal (1 y 15)",
-    "0 7 1 * *": "Mensual (dia 1)",
-    "0 7 1 3,8 *": "Al cierre de cada semestre",
-}
-FRECUENCIA_DEFAULT = "0 7 * * 1"
-
 # Deliberadamente permisiva: valida la forma, no la existencia del buzon. Un
 # regex de correo "completo" rechaza direcciones validas y da falsa seguridad.
 _CORREO = re.compile(r"^[^@\s,]+@[^@\s,]+\.[^@\s,]+$")
@@ -43,21 +38,16 @@ _CORREO = re.compile(r"^[^@\s,]+@[^@\s,]+\.[^@\s,]+$")
 
 def _por_defecto() -> dict[str, Any]:
     crudo = os.getenv("REPORTE_EMAIL_TO", "")
-    return {
-        "destinatarios": [d.strip() for d in crudo.split(",") if d.strip()],
-        "frecuencia": os.getenv("REPORTE_CRON", FRECUENCIA_DEFAULT),
-    }
+    return {"destinatarios": [d.strip() for d in crudo.split(",") if d.strip()]}
 
 
 def leer_destino() -> dict[str, Any]:
-    """Configuracion vigente. Si nunca se guardo nada, la de las variables de entorno."""
+    """Destinatarios vigentes. Si nunca se guardo nada, los de la variable de entorno."""
     if RUTA_DESTINO.is_file():
         try:
             guardado = json.loads(RUTA_DESTINO.read_text(encoding="utf-8"))
             base = _por_defecto()
-            base.update(
-                {k: v for k, v in guardado.items() if k in ("destinatarios", "frecuencia")}
-            )
+            base.update({k: v for k, v in guardado.items() if k == "destinatarios"})
             return base
         except (json.JSONDecodeError, OSError):
             # Un archivo corrupto no puede dejar el servicio sin configuracion:
@@ -66,7 +56,7 @@ def leer_destino() -> dict[str, Any]:
     return _por_defecto()
 
 
-def validar(destinatarios: list[str], frecuencia: str) -> list[str]:
+def validar(destinatarios: list[str]) -> list[str]:
     """Devuelve la lista de errores. Vacia = la configuracion es valida."""
     errores: list[str] = []
     if not destinatarios:
@@ -74,14 +64,12 @@ def validar(destinatarios: list[str], frecuencia: str) -> list[str]:
     for d in destinatarios:
         if not _CORREO.match(d):
             errores.append(f"'{d}' no tiene forma de correo electronico")
-    if frecuencia not in FRECUENCIAS:
-        errores.append(f"Frecuencia no reconocida. Validas: {', '.join(FRECUENCIAS)}")
     return errores
 
 
-def guardar_destino(destinatarios: list[str], frecuencia: str) -> dict[str, Any]:
-    """Persiste la configuracion. Asume que ya paso por validar()."""
+def guardar_destino(destinatarios: list[str]) -> dict[str, Any]:
+    """Persiste los destinatarios. Asume que ya pasaron por validar()."""
     RUTA_DESTINO.parent.mkdir(parents=True, exist_ok=True)
-    datos = {"destinatarios": destinatarios, "frecuencia": frecuencia}
+    datos = {"destinatarios": destinatarios}
     RUTA_DESTINO.write_text(json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
     return datos

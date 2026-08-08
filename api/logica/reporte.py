@@ -160,9 +160,9 @@ def resumen_correo(
 ) -> str:
     """Cuerpo del correo que recibe Bienestar Universitario.
 
-    Vive en la API y no en el script del cron para que la interfaz pueda
-    mostrar exactamente el mismo texto que se enviaria: si el operador ve una
-    vista previa distinta del correo real, la vista previa no sirve.
+    Una sola funcion para la vista previa y para el envio real, para que sean
+    necesariamente el mismo texto: si el operador aprueba en pantalla un correo
+    distinto del que sale, la vista previa no sirve para nada.
     """
     senalados = [e for e in estudiantes if e.get("en_riesgo")]
     total = len(senalados)

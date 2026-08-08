@@ -152,8 +152,8 @@ def test_vista_previa_correo(client: TestClient) -> None:
 def test_destino_configurable(client: TestClient, tmp_path, monkeypatch) -> None:
     """Lo que se guarda desde la interfaz es lo que se lee despues.
 
-    Si no persistiera, el panel de envio seria decorativo: mostraria valores que
-    el cron nunca usa.
+    Si no persistiera, el panel seria decorativo: mostraria un destinatario y el
+    correo se iria a otro.
     """
     from api.logica import destino as mod
 
@@ -161,40 +161,41 @@ def test_destino_configurable(client: TestClient, tmp_path, monkeypatch) -> None
 
     r = client.put(
         "/reporte/destino",
-        json={"destinatarios": ["bienestar@utepsa.edu", "tutorias@utepsa.edu"],
-              "frecuencia": "0 7 1 * *"},
+        json={"destinatarios": ["bienestar@utepsa.edu", "tutorias@utepsa.edu"]},
     )
     assert r.status_code == 200
 
     leido = client.get("/reporte/destino").json()
     assert leido["destinatarios"] == ["bienestar@utepsa.edu", "tutorias@utepsa.edu"]
-    assert leido["frecuencia"] == "0 7 1 * *"
+    # No hay envio programado: la configuracion es a quien, no cada cuanto.
+    assert "frecuencia" not in leido
 
-    # Sin destinatarios en la query, la vista previa (y por lo tanto el cron)
-    # usa los configurados.
+    # Sin destinatarios en la query, la vista previa usa los configurados —
+    # que es lo mismo que hace el envio real.
     previa = client.get("/reporte/correo", params={"umbral": 0.5}).json()
     assert previa["destinatarios"] == ["bienestar@utepsa.edu", "tutorias@utepsa.edu"]
 
 
 def test_destino_rechaza_datos_invalidos(client: TestClient, tmp_path, monkeypatch) -> None:
-    """Un correo mal escrito tiene que fallar en el momento, no el lunes a las 7."""
+    """Un correo mal escrito tiene que fallar al guardar, con el error a la vista.
+
+    Si se aceptara, el fallo aparecería recién al apretar "Enviar ahora" y sin
+    decir por qué.
+    """
     from api.logica import destino as mod
 
     monkeypatch.setattr(mod, "RUTA_DESTINO", tmp_path / "destino.json")
 
-    r = client.put(
-        "/reporte/destino",
-        json={"destinatarios": ["no-es-un-correo"], "frecuencia": "0 7 * * 1"},
-    )
+    r = client.put("/reporte/destino", json={"destinatarios": ["no-es-un-correo"]})
     assert r.status_code == 422
+    assert "correo" in " ".join(r.json()["detail"]).lower()
 
-    r = client.put(
-        "/reporte/destino",
-        json={"destinatarios": ["a@b.com"], "frecuencia": "cada rato"},
-    )
+    # Uno valido y uno invalido: tampoco pasa, y el error nombra al culpable.
+    r = client.put("/reporte/destino", json={"destinatarios": ["a@b.com", "roto@"]})
     assert r.status_code == 422
+    assert "roto@" in " ".join(r.json()["detail"])
 
-    r = client.put("/reporte/destino", json={"destinatarios": [], "frecuencia": "0 7 * * 1"})
+    r = client.put("/reporte/destino", json={"destinatarios": []})
     assert r.status_code == 422
 
 
@@ -226,7 +227,7 @@ def test_enviar_usa_los_destinatarios_configurados(client: TestClient, tmp_path,
     monkeypatch.setattr(mod_destino, "RUTA_DESTINO", tmp_path / "destino.json")
     client.put(
         "/reporte/destino",
-        json={"destinatarios": ["bienestar@utepsa.edu"], "frecuencia": "0 7 * * 1"},
+        json={"destinatarios": ["bienestar@utepsa.edu"]},
     )
 
     capturado: dict = {}

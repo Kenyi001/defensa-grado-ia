@@ -10,12 +10,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
 from api.config import LIMITE_REPORTE_DEFAULT, LIMITE_REPORTE_MAX, SEDES, UMBRAL_DEFAULT
-from api.logica.destino import (
-    FRECUENCIAS,
-    guardar_destino,
-    leer_destino,
-    validar,
-)
+from api.logica.destino import guardar_destino, leer_destino, validar
 from api.logica.envio import SMTPNoConfigurado, enviar, hay_smtp
 from api.logica.reporte import armar_reporte, resumen_correo
 from api.schemas import ReporteOutput
@@ -73,7 +68,7 @@ def armar_csv(senalados: list[dict[str, Any]], desde: int = 1) -> str:
 
 @router.get("/reporte/destino", response_model=None)
 def obtener_destino():
-    """A quien y cada cuanto se envia el reporte, hoy.
+    """A quien se le envia el reporte, hoy.
 
     La interfaz lo consulta al abrirse para mostrar la configuracion REAL en
     vez de un valor de ejemplo: si la pantalla mostrara un placeholder, el
@@ -82,7 +77,6 @@ def obtener_destino():
     actual = leer_destino()
     return {
         **actual,
-        "frecuencias_disponibles": FRECUENCIAS,
         # La interfaz lo usa para no ofrecer "Enviar ahora" cuando el servicio
         # no tiene servidor de correo: un boton que no puede funcionar es peor
         # que no tenerlo.
@@ -98,20 +92,17 @@ def obtener_destino():
 
 
 @router.put("/reporte/destino", response_model=None)
-def actualizar_destino(
-    destinatarios: list[str] = Body(..., embed=True),
-    frecuencia: str = Body(..., embed=True),
-):
-    """Cambia los destinatarios y la frecuencia desde la interfaz.
+def actualizar_destino(destinatarios: list[str] = Body(..., embed=True)):
+    """Cambia los destinatarios desde la interfaz.
 
     No toca credenciales: el servidor de correo se configura por variables de
     entorno del servicio y no se expone por HTTP en ningun sentido.
     """
     limpios = [d.strip() for d in destinatarios if d and d.strip()]
-    errores = validar(limpios, frecuencia)
+    errores = validar(limpios)
     if errores:
         raise HTTPException(status_code=422, detail=errores)
-    return {"guardado": True, **guardar_destino(limpios, frecuencia)}
+    return {"guardado": True, **guardar_destino(limpios)}
 
 
 def _componer(estado, umbral: float, sede_id: Optional[str], destinatarios: str = ""):
@@ -134,8 +125,8 @@ def _componer(estado, umbral: float, sede_id: Optional[str], destinatarios: str 
     )
     senalados = [e for e in data["estudiantes"] if e["en_riesgo"]]
     sede_txt = sede_id or "todas las sedes"
-    # Sin destinatarios explicitos se usan los configurados. Asi el cron, que no
-    # pasa ninguno, envia exactamente a quien dice la pantalla.
+    # Sin destinatarios explicitos se usan los configurados. Asi el envio real,
+    # que no pasa ninguno, manda exactamente a quien dice la pantalla.
     pedidos = [d.strip() for d in destinatarios.split(",") if d.strip()]
     correo = {
         "asunto": f"Alerta temprana de desercion - {sede_txt}",

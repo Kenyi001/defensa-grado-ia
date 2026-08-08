@@ -111,7 +111,7 @@
   }
   .sr { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
         overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
-  .envio { display: grid; grid-template-columns: 2fr 1fr auto; gap: 18px; align-items: end; }
+  .envio { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: end; }
   .acciones-envio { display: flex; gap: 10px; }
   .acciones-envio button { margin-top: 0; }
   .ok { color: var(--bajo); font-weight: 600; }
@@ -190,20 +190,11 @@
 
   <section class="panel">
     <h2>¿A quién se le envía este reporte?</h2>
-    <p class="ayuda">El reporte se envía automáticamente según la frecuencia elegida. Podés revisar el contenido exacto antes de programarlo.</p>
+    <p class="ayuda">Revisá el correo exacto antes de mandarlo. El envío lo decide una persona, no un automatismo.</p>
     <div class="envio">
       <div>
         <label for="destinatarios">Destinatarios (separados por coma)</label>
         <input type="text" id="destinatarios" placeholder="bienestar@unal.edu, tutorias@unal.edu">
-      </div>
-      <div>
-        <label for="frecuencia">Frecuencia de envío</label>
-        <select id="frecuencia">
-          <option value="0 7 * * 1">Cada lunes, 7:00</option>
-          <option value="0 7 1,15 * *">Quincenal (1 y 15)</option>
-          <option value="0 7 1 * *">Mensual (día 1)</option>
-          <option value="0 7 1 3,8 *">Al cierre de cada semestre</option>
-        </select>
       </div>
       <div class="acciones-envio">
         <button id="btnGuardarDestino" type="button">Guardar</button>
@@ -216,7 +207,8 @@
     <p class="nota" id="sinSmtp" hidden>Este servicio no tiene servidor de correo configurado,
     así que <strong>no puede enviar</strong>: se puede revisar el correo exacto que saldría, pero
     el envío requiere configurar <code>REPORTE_SMTP_HOST</code> en el servicio.</p>
-    <p class="nota">El envío programado lo ejecuta un proceso en el servidor. Las credenciales del
+    <p class="nota">El reporte se envía cuando alguien lo decide desde esta pantalla — no hay envío
+    automático, a propósito: un aviso que nadie revisó antes se vuelve ruido que se ignora. Las credenciales del
     servidor de correo se configuran como variables de entorno del servicio — <strong>nunca se
     piden desde esta pantalla</strong>.</p>
   </section>
@@ -423,7 +415,6 @@ async function cargarDestino() {
     if (!r.ok) throw new Error('el servicio respondió ' + r.status);
     const d = await r.json();
     $('destinatarios').value = d.destinatarios.join(', ');
-    if (d.frecuencia) $('frecuencia').value = d.frecuencia;
     // "Enviar ahora" solo aparece si el servicio tiene servidor de correo.
     // Un botón que no puede funcionar es peor que no tenerlo.
     $('btnEnviar').hidden = !d.envio_disponible;
@@ -447,7 +438,7 @@ async function guardarDestino() {
     const r = await fetch('/reporte/destino', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ destinatarios, frecuencia: $('frecuencia').value }),
+      body: JSON.stringify({ destinatarios }),
     });
     const d = await r.json();
     if (!r.ok) {
@@ -456,8 +447,7 @@ async function guardarDestino() {
       const errores = Array.isArray(d.detail) ? d.detail.join(' · ') : (d.detail || r.status);
       throw new Error(errores);
     }
-    const cuando = $('frecuencia').options[$('frecuencia').selectedIndex].text.toLowerCase();
-    est.innerHTML = `<span class="ok">Guardado.</span> El reporte se enviará ${cuando} a ${d.destinatarios.join(', ')}.`;
+    est.innerHTML = `<span class="ok">Guardado.</span> El reporte se enviará a ${d.destinatarios.join(', ')}.`;
   } catch (e) {
     est.innerHTML = `<span class="error">No se pudo guardar: ${e.message}</span>`;
   } finally {
@@ -477,12 +467,10 @@ async function verPrevia() {
     const r = await fetch('/reporte/correo?' + q);
     if (!r.ok) throw new Error('el servicio respondió ' + r.status);
     const d = await r.json();
-    const cuando = $('frecuencia').options[$('frecuencia').selectedIndex].text;
     box.innerHTML = `<div class="previa">
       <div class="meta"><strong>Para:</strong> ${d.destinatarios.join(', ') || '(sin destinatarios)'}
         &nbsp;·&nbsp; <strong>Asunto:</strong> ${d.asunto}
-        &nbsp;·&nbsp; <strong>Adjunto:</strong> ${d.adjunto.nombre} (${d.adjunto.filas} estudiantes)
-        &nbsp;·&nbsp; <strong>Envío:</strong> ${cuando}</div>
+        &nbsp;·&nbsp; <strong>Adjunto:</strong> ${d.adjunto.nombre} (${d.adjunto.filas} estudiantes)</div>
       <pre>${d.cuerpo.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</pre>
     </div>`;
   } catch (e) {
