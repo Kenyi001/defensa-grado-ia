@@ -5,52 +5,80 @@ el trabajo programado. Si cada uno armara y enviara su propio mensaje, lo que
 prueba el operador en pantalla no seria lo que llega el lunes a las 7.
 
 Las credenciales salen SIEMPRE de variables de entorno del servicio. No hay
-ningun camino por el que una contrasena entre por HTTP: la interfaz no las pide
-y esta funcion no las recibe como argumento.
+ningun camino por el que una contrasena o API key entre por HTTP: la interfaz
+no las pide y esta funcion no las recibe como argumento.
+
+Dos proveedores posibles, en este orden de prioridad:
+  1. Resend (RESEND_API_KEY) — API REST directa, sin SMTP.
+  2. SMTP generico (REPORTE_SMTP_HOST/USER/PASS) — Brevo u otro relay.
+Si ninguno esta configurado, ProveedorNoConfigurado explica exactamente que
+variable falta, en vez de que el boton simplemente no aparezca sin decir por
+que (la interfaz ya lo oculta con envio_disponible, pero el error tiene que
+seguir siendo claro si alguien llama al endpoint directo).
 """
 
 from __future__ import annotations
 
+import base64
 import os
 import smtplib
 from email.message import EmailMessage
 from typing import Any
 
+import httpx
 
-class SMTPNoConfigurado(RuntimeError):
-    """El servicio no tiene servidor de correo. No es un error del operador."""
-
-
-def hay_smtp() -> bool:
-    return bool(os.getenv("REPORTE_SMTP_HOST"))
+RESEND_URL = "https://api.resend.com/emails"
+RESEND_FROM_DEFAULT = "onboarding@resend.dev"  # remitente de sandbox: no requiere dominio verificado
 
 
-def enviar(correo: dict[str, Any], adjunto_csv: str) -> dict[str, Any]:
-    """Envia el correo ya armado. `correo` es la respuesta de /reporte/correo.
+class ProveedorNoConfigurado(RuntimeError):
+    """El servicio no tiene un proveedor de correo. No es un error del operador."""
 
-    Devuelve un resumen de lo enviado — nunca las credenciales.
-    """
-    host = os.getenv("REPORTE_SMTP_HOST")
-    if not host:
-        raise SMTPNoConfigurado(
-            "El servicio no tiene un servidor de correo configurado. "
-            "Se configura con las variables REPORTE_SMTP_HOST, REPORTE_SMTP_USER "
-            "y REPORTE_SMTP_PASS del servicio; no se piden desde esta pantalla."
-        )
 
-    destinatarios = correo.get("destinatarios") or []
-    if not destinatarios:
-        raise ValueError("No hay destinatarios configurados.")
+def hay_proveedor_correo() -> bool:
+    return bool(os.getenv("RESEND_API_KEY")) or bool(os.getenv("REPORTE_SMTP_HOST"))
 
+
+def _remitente() -> str:
+    # REPORTE_EMAIL_FROM es el remitente visible en ambos proveedores. Con
+    # Resend, sin esa variable cae al sandbox (onboarding@resend.dev); con SMTP
+    # cae al usuario de login, como antes.
+    explicito = os.getenv("REPORTE_EMAIL_FROM")
+    if explicito:
+        return explicito
+    return os.getenv("REPORTE_SMTP_USER") or RESEND_FROM_DEFAULT
+
+
+def _enviar_resend(correo: dict[str, Any], adjunto_csv: str, api_key: str) -> dict[str, Any]:
+    payload = {
+        "from": _remitente(),
+        "to": correo["destinatarios"],
+        "subject": correo["asunto"],
+        "text": correo["cuerpo"],
+        "attachments": [
+            {
+                "filename": correo["adjunto"]["nombre"],
+                "content": base64.b64encode(adjunto_csv.encode("utf-8")).decode("ascii"),
+            }
+        ],
+    }
+    r = httpx.post(
+        RESEND_URL,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=30,
+    )
+    if r.status_code >= 300:
+        # OSError: el router ya lo traduce a 502 ("no se pudo contactar al
+        # servidor de correo") — no hace falta un tipo de excepcion nuevo.
+        raise OSError(f"Resend respondio {r.status_code}: {r.text[:300]}")
+
+
+def _enviar_smtp(correo: dict[str, Any], adjunto_csv: str, host: str) -> dict[str, Any]:
     msg = EmailMessage()
     msg["Subject"] = correo["asunto"]
-    # REPORTE_EMAIL_FROM es el remitente visible; REPORTE_SMTP_USER es el login
-    # SMTP. Con un proveedor transaccional (Brevo, Resend) casi siempre son
-    # distintos: el remitente tiene que ser una direccion verificada aparte, y
-    # forzar el login como From puede hacer que el proveedor rechace el envio.
-    # Sin REPORTE_EMAIL_FROM, cae al comportamiento de siempre.
-    msg["From"] = os.getenv("REPORTE_EMAIL_FROM") or os.getenv("REPORTE_SMTP_USER", "noreply@local")
-    msg["To"] = ", ".join(destinatarios)
+    msg["From"] = _remitente()
+    msg["To"] = ", ".join(correo["destinatarios"])
     msg.set_content(correo["cuerpo"])
     msg.add_attachment(
         adjunto_csv.encode("utf-8"),
@@ -67,6 +95,31 @@ def enviar(correo: dict[str, Any], adjunto_csv: str) -> dict[str, Any]:
         if usuario and clave:
             smtp.login(usuario, clave)
         smtp.send_message(msg)
+
+
+def enviar(correo: dict[str, Any], adjunto_csv: str) -> dict[str, Any]:
+    """Envia el correo ya armado. `correo` es la respuesta de /reporte/correo.
+
+    Devuelve un resumen de lo enviado — nunca las credenciales.
+    """
+    destinatarios = correo.get("destinatarios") or []
+    if not destinatarios:
+        raise ValueError("No hay destinatarios configurados.")
+
+    resend_key = os.getenv("RESEND_API_KEY")
+    smtp_host = os.getenv("REPORTE_SMTP_HOST")
+
+    if resend_key:
+        _enviar_resend(correo, adjunto_csv, resend_key)
+    elif smtp_host:
+        _enviar_smtp(correo, adjunto_csv, smtp_host)
+    else:
+        raise ProveedorNoConfigurado(
+            "El servicio no tiene un proveedor de correo configurado. Se configura "
+            "con RESEND_API_KEY (recomendado), o con REPORTE_SMTP_HOST, "
+            "REPORTE_SMTP_USER y REPORTE_SMTP_PASS del servicio; no se piden "
+            "desde esta pantalla."
+        )
 
     return {
         "enviado": True,

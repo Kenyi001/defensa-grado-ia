@@ -132,6 +132,15 @@ class SaludOutput(BaseModel):
     estado: Literal["ok"]
     modelo_version: str
     modelo_cargado: bool
+    # Metricas sobre el conjunto de prueba, si el modelo cargado las trae
+    # serializadas (el placeholder sintetico no las tiene). Los criterios
+    # viajan junto a los valores para que el frontend no repita los numeros
+    # de la Fase 1 del caso.
+    recall: Optional[float] = None
+    precision: Optional[float] = None
+    roc_auc: Optional[float] = None
+    criterio_recall: Optional[float] = None
+    criterio_precision: Optional[float] = None
 
 
 class ReporteAgregado(BaseModel):

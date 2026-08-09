@@ -85,6 +85,27 @@ def test_salud(client: TestClient) -> None:
     assert body["modelo_cargado"] is True
 
 
+def test_salud_expone_metricas_del_modelo_real(client: TestClient) -> None:
+    """/salud tiene que traer las metricas de test reales, no solo "modelo_cargado".
+
+    El modelo real (models/random_forest_v1.joblib, versionado en el repo) trae
+    sus metricas de test serializadas adentro del paquete. Si el placeholder
+    sintetico estuviera cargado en su lugar, estos campos vendrian en None —
+    este test asume que el .joblib real esta presente, igual que el resto de
+    la suite.
+    """
+    body = client.get("/salud").json()
+    assert body["recall"] == pytest.approx(0.9049, abs=0.001)
+    assert body["precision"] == pytest.approx(0.8682, abs=0.001)
+    assert body["roc_auc"] == pytest.approx(0.9677, abs=0.001)
+    assert body["criterio_recall"] == 0.80
+    assert body["criterio_precision"] == 0.60
+    # Con estos numeros, el modelo cumple ambos criterios de la Fase 1 —
+    # es literalmente el argumento de la fase de Evaluacion, medido.
+    assert body["recall"] >= body["criterio_recall"]
+    assert body["precision"] >= body["criterio_precision"]
+
+
 def test_predecir_ok(client: TestClient) -> None:
     r = client.post("/predecir", json=PAYLOAD_OK)
     assert r.status_code == 200
@@ -199,17 +220,18 @@ def test_destino_rechaza_datos_invalidos(client: TestClient, tmp_path, monkeypat
     assert r.status_code == 422
 
 
-def test_enviar_sin_smtp_avisa_en_vez_de_romper(client: TestClient, monkeypatch) -> None:
-    """Sin servidor de correo el envio responde 503, no 500.
+def test_enviar_sin_proveedor_avisa_en_vez_de_romper(client: TestClient, monkeypatch) -> None:
+    """Sin ningun proveedor de correo el envio responde 503, no 500.
 
     La diferencia importa: 500 dice "el sistema esta roto", 503 dice "falta
     configurar el correo". La interfaz usa eso para ocultar el boton en vez de
     ofrecer algo que no puede funcionar.
     """
     monkeypatch.delenv("REPORTE_SMTP_HOST", raising=False)
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
     r = client.post("/reporte/enviar", params={"umbral": 0.5})
     assert r.status_code == 503
-    assert "servidor de correo" in r.json()["detail"]
+    assert "proveedor de correo" in r.json()["detail"]
 
     # Y la interfaz se entera por /reporte/destino.
     assert client.get("/reporte/destino").json()["envio_disponible"] is False
@@ -249,6 +271,56 @@ def test_enviar_usa_los_destinatarios_configurados(client: TestClient, tmp_path,
     assert r.json()["destinatarios"] == ["bienestar@utepsa.edu"]
     # El adjunto es el MISMO CSV que se descarga de la pantalla.
     assert capturado["csv"].splitlines()[0] == (
+        "prioridad,estudiante_id,carrera,sede,nivel_riesgo,probabilidad,motivos,accion_sugerida"
+    )
+
+
+def test_enviar_con_resend(client: TestClient, tmp_path, monkeypatch) -> None:
+    """Con RESEND_API_KEY seteada, el envio usa la API REST de Resend, no SMTP.
+
+    Verifica la forma exacta del pedido: URL, header de autorizacion, y que el
+    adjunto viaja en base64 — si alguno de estos cambia sin querer, Resend
+    rechaza el correo en silencio o lo manda sin el CSV.
+    """
+    import base64
+
+    from api.logica import destino as mod_destino
+    from api.logica import envio as mod_envio
+
+    monkeypatch.setattr(mod_destino, "RUTA_DESTINO", tmp_path / "destino.json")
+    client.put("/reporte/destino", json={"destinatarios": ["bienestar@utepsa.edu"]})
+
+    monkeypatch.delenv("REPORTE_SMTP_HOST", raising=False)
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_falsa")
+    monkeypatch.setenv("REPORTE_EMAIL_FROM", "alertas@utepsa.edu")
+
+    capturado: dict = {}
+
+    class RespuestaFalsa:
+        status_code = 200
+        text = "ok"
+
+    def post_falso(url, headers=None, json=None, timeout=None):
+        capturado["url"] = url
+        capturado["headers"] = headers
+        capturado["payload"] = json
+        return RespuestaFalsa()
+
+    monkeypatch.setattr(mod_envio.httpx, "post", post_falso)
+
+    r = client.post("/reporte/enviar", params={"umbral": 0.5})
+    assert r.status_code == 200
+    assert r.json()["destinatarios"] == ["bienestar@utepsa.edu"]
+
+    assert capturado["url"] == "https://api.resend.com/emails"
+    assert capturado["headers"]["Authorization"] == "Bearer re_test_falsa"
+    payload = capturado["payload"]
+    assert payload["from"] == "alertas@utepsa.edu"
+    assert payload["to"] == ["bienestar@utepsa.edu"]
+    # El adjunto viaja en base64: decodificarlo tiene que devolver el mismo CSV.
+    adjunto_b64 = payload["attachments"][0]["content"]
+    csv_decodificado = base64.b64decode(adjunto_b64).decode("utf-8")
+    assert csv_decodificado.splitlines()[0] == (
         "prioridad,estudiante_id,carrera,sede,nivel_riesgo,probabilidad,motivos,accion_sugerida"
     )
 

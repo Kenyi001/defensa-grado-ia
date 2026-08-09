@@ -19,6 +19,12 @@ RUTA_DATASET = Path(
 
 MODELO_VERSION = os.getenv("MODELO_VERSION", "v1")
 UMBRAL_DEFAULT = float(os.getenv("UMBRAL_DEFAULT", "0.5"))
+
+# Criterios de exito declarados en la Fase 1 (Comprension del Negocio) del
+# caso. Se usan para que /salud pueda decir "se cumple" sin repetir estos
+# numeros sueltos en el frontend.
+CRITERIO_RECALL_MIN = 0.80
+CRITERIO_PRECISION_MIN = 0.60
 LIMITE_REPORTE_DEFAULT = int(os.getenv("LIMITE_REPORTE_DEFAULT", "50"))
 # 1000 y no 500: la poblacion de demo son 794 estudiantes y la interfaz los
 # necesita completos para contar bien los niveles de riesgo. Con el tope en 500

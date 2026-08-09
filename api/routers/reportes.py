@@ -11,7 +11,7 @@ from fastapi.responses import PlainTextResponse
 
 from api.config import LIMITE_REPORTE_DEFAULT, LIMITE_REPORTE_MAX, SEDES, UMBRAL_DEFAULT
 from api.logica.destino import guardar_destino, leer_destino, validar
-from api.logica.envio import SMTPNoConfigurado, enviar, hay_smtp
+from api.logica.envio import ProveedorNoConfigurado, enviar, hay_proveedor_correo
 from api.logica.reporte import armar_reporte, resumen_correo
 from api.schemas import ReporteOutput
 
@@ -80,7 +80,7 @@ def obtener_destino():
         # La interfaz lo usa para no ofrecer "Enviar ahora" cuando el servicio
         # no tiene servidor de correo: un boton que no puede funcionar es peor
         # que no tenerlo.
-        "envio_disponible": hay_smtp(),
+        "envio_disponible": hay_proveedor_correo(),
         # Declarado en la respuesta y no solo en la documentacion: en el plan
         # gratuito de Render el disco es efimero y esto se pierde al redesplegar.
         "persistencia": (
@@ -195,7 +195,7 @@ def enviar_ahora(
     correo, csv_texto = _componer(request.app.state, umbral, sede_id, capacidad=capacidad)
     try:
         return enviar(correo, csv_texto)
-    except SMTPNoConfigurado as exc:
+    except ProveedorNoConfigurado as exc:
         # 503 y no 500: el servicio funciona, le falta configuracion.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:

@@ -35,6 +35,9 @@ async def lifespan(app: FastAPI):
     app.state.modelo = paquete["model"]
     app.state.modelo_version = paquete.get("version", MODELO_VERSION)
     app.state.umbral_default = float(paquete.get("threshold_default", UMBRAL_DEFAULT))
+    # None con el modelo placeholder sintetico (no lo trae); presente con el
+    # modelo real, calculado sobre el conjunto de prueba en el notebook.
+    app.state.metricas_test = paquete.get("metricas_test")
     app.state.poblacion = cargar_poblacion(RUTA_DATASET)
     yield
     app.state.modelo = None

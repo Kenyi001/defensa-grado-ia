@@ -141,6 +141,7 @@
   </div>
   <div class="estado" role="status" aria-live="polite"><span class="punto" id="punto"></span><span id="estadoTxt">conectando…</span></div>
 </header>
+<p class="nota" id="confiabilidad" style="margin:6px 28px 0;padding:0;border:0" hidden></p>
 
 <main>
 
@@ -293,6 +294,22 @@ async function salud() {
     $('estadoTxt').textContent = d.modelo_cargado
       ? 'servicio activo · modelo ' + d.modelo_version
       : 'modelo no cargado';
+
+    // Solo aparece si el modelo trae metricas de test serializadas (el
+    // placeholder sintetico no las tiene). Muestra la Evaluacion de la Fase 1
+    // del caso en vivo: no solo el numero, tambien si cumple el criterio.
+    const conf = $('confiabilidad');
+    if (d.recall != null && d.precision != null) {
+      const cumpleRecall = d.recall >= d.criterio_recall ? '✓' : '✗';
+      const cumplePrecision = d.precision >= d.criterio_precision ? '✓' : '✗';
+      conf.innerHTML = `Confiabilidad del modelo: Recall <strong>${pct(d.recall)}</strong> `
+        + `(≥${pct(d.criterio_recall)} ${cumpleRecall}) · Precision <strong>${pct(d.precision)}</strong> `
+        + `(≥${pct(d.criterio_precision)} ${cumplePrecision})`
+        + (d.roc_auc != null ? ` · AUC <strong>${d.roc_auc.toFixed(3).replace('.', ',')}</strong>` : '');
+      conf.hidden = false;
+    } else {
+      conf.hidden = true;
+    }
   } catch {
     $('punto').className = 'punto mal';
     $('estadoTxt').textContent = 'sin conexión con el servicio';
