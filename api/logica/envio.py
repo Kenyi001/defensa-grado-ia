@@ -44,7 +44,12 @@ def enviar(correo: dict[str, Any], adjunto_csv: str) -> dict[str, Any]:
 
     msg = EmailMessage()
     msg["Subject"] = correo["asunto"]
-    msg["From"] = os.getenv("REPORTE_SMTP_USER", "noreply@local")
+    # REPORTE_EMAIL_FROM es el remitente visible; REPORTE_SMTP_USER es el login
+    # SMTP. Con un proveedor transaccional (Brevo, Resend) casi siempre son
+    # distintos: el remitente tiene que ser una direccion verificada aparte, y
+    # forzar el login como From puede hacer que el proveedor rechace el envio.
+    # Sin REPORTE_EMAIL_FROM, cae al comportamiento de siempre.
+    msg["From"] = os.getenv("REPORTE_EMAIL_FROM") or os.getenv("REPORTE_SMTP_USER", "noreply@local")
     msg["To"] = ", ".join(destinatarios)
     msg.set_content(correo["cuerpo"])
     msg.add_attachment(

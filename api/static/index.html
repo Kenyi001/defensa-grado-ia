@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Panel de triaje de riesgo de deserción estudiantil para Bienestar Universitario: prioriza a quién contactar primero y arma el reporte de alerta temprana.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='20' fill='%23C4001F'/%3E%3Ctext x='20' y='27' font-family='Segoe UI,Arial,sans-serif' font-size='20' font-weight='700' fill='%23fff' text-anchor='middle'%3EU%3C/text%3E%3C/svg%3E">
 <title>Sistema de Alerta Temprana · Bienestar Universitario</title>
 <style>
   /* Paleta UTEPSA. Mismos valores que la presentacion y los widgets SVG.
@@ -172,6 +174,7 @@
       <div>
         <label for="capacidad">Capacidad de tutorías</label>
         <input type="number" id="capacidad" min="5" max="500" step="5" value="50">
+        <p class="nota" id="capacidadNota" role="status" aria-live="polite" style="margin:4px 0 0;padding:0;border:0"></p>
       </div>
     </div>
     <p class="nota" id="resumen" role="status" aria-live="polite">—</p>
@@ -195,6 +198,7 @@
       <div>
         <label for="destinatarios">Destinatarios (separados por coma)</label>
         <input type="text" id="destinatarios" placeholder="bienestar@unal.edu, tutorias@unal.edu">
+        <p class="nota" id="avisoSinGuardar" role="status" hidden style="margin:4px 0 0;padding:0;border:0;color:var(--medio)">Tenés cambios sin guardar — "Enviar ahora" queda deshabilitado hasta que guardes.</p>
       </div>
       <div class="acciones-envio">
         <button id="btnGuardarDestino" type="button">Guardar</button>
@@ -296,6 +300,21 @@ async function salud() {
 }
 
 let cache = null;   // se pide una vez con umbral bajo y se reclasifica en el navegador
+let destinatariosGuardados = null;   // ultima lista confirmada por el servidor
+
+// Compara el campo de texto contra lo ultimo guardado y bloquea "Enviar ahora"
+// si difieren: asi "Enviar ahora" nunca puede mandar a una lista vieja porque
+// alguien edito el campo y no aprieto Guardar antes.
+function sincronizarBotonEnviar() {
+  const btnEnviar = $('btnEnviar');
+  if (btnEnviar.hidden || destinatariosGuardados === null) return;
+  const actual = $('destinatarios').value.split(',').map(s => s.trim()).filter(Boolean);
+  const igual = actual.length === destinatariosGuardados.length
+    && actual.every((d, i) => d === destinatariosGuardados[i]);
+  btnEnviar.disabled = !igual;
+  btnEnviar.title = igual ? '' : 'Guardá los destinatarios antes de enviar: el campo tiene cambios sin guardar.';
+  $('avisoSinGuardar').hidden = igual;
+}
 
 function esqueleto(filas = 8) {
   // Mantiene la altura mientras carga: si el bloque se colapsa, la pagina
@@ -327,10 +346,26 @@ async function cargar() {
   }
 }
 
+// Ajusta la capacidad al rango valido (5-500) en vez de convertir cualquier
+// entrada invalida en 0 en silencio. Si hubo que ajustar, lo dice.
+function capacidadActual() {
+  const campo = $('capacidad');
+  const crudo = parseInt(campo.value, 10);
+  const ajustada = Number.isFinite(crudo) ? Math.min(500, Math.max(5, crudo)) : 50;
+  const nota = $('capacidadNota');
+  if (!Number.isFinite(crudo) || crudo !== ajustada) {
+    campo.value = ajustada;
+    nota.textContent = `Se ajustó a ${ajustada} (rango válido: 5-500).`;
+  } else {
+    nota.textContent = '';
+  }
+  return ajustada;
+}
+
 function pintar() {
   if (!cache) return;
   const u = parseFloat($('umbral').value);
-  const cap = parseInt($('capacidad').value, 10) || 0;
+  const cap = capacidadActual();
   const est = cache.estudiantes;
 
   $('umbralTxt').textContent = u.toFixed(2).replace('.', ',');
@@ -386,6 +421,8 @@ async function evaluar() {
     debtor: $('pago').value === '0' ? 1 : 0,
     scholarship_holder: +$('beca').value,
   });
+  const btn = $('btnEval');
+  btn.disabled = true;
   $('evalP').textContent = '…';
   $('evalD').textContent = 'consultando el modelo';
   try {
@@ -404,6 +441,8 @@ async function evaluar() {
     $('evalP').textContent = '—';
     $('evalD').textContent = 'no se pudo evaluar: ' + e.message;
     $('evalE').textContent = '';
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -415,6 +454,7 @@ async function cargarDestino() {
     if (!r.ok) throw new Error('el servicio respondió ' + r.status);
     const d = await r.json();
     $('destinatarios').value = d.destinatarios.join(', ');
+    destinatariosGuardados = d.destinatarios;
     // "Enviar ahora" solo aparece si el servicio tiene servidor de correo.
     // Un botón que no puede funcionar es peor que no tenerlo.
     $('btnEnviar').hidden = !d.envio_disponible;
@@ -422,16 +462,28 @@ async function cargarDestino() {
     $('estadoDestino').textContent = d.destinatarios.length
       ? ''
       : 'Todavía no hay destinatarios configurados: el reporte no se envía a nadie.';
+    sincronizarBotonEnviar();
   } catch (e) {
     $('estadoDestino').innerHTML =
       `<span class="error">No se pudo leer la configuración de envío: ${e.message}</span>`;
   }
 }
 
+// Mismo patron que valida el servidor (destino.py): validar antes de la ida y
+// vuelta de red ahorra el viaje cuando el error es un simple typo.
+const PATRON_CORREO = /^[^@\s,]+@[^@\s,]+\.[^@\s,]+$/;
+
 async function guardarDestino() {
   const btn = $('btnGuardarDestino');
   const est = $('estadoDestino');
   const destinatarios = $('destinatarios').value.split(',').map(s => s.trim()).filter(Boolean);
+
+  const invalidos = destinatarios.filter(d => !PATRON_CORREO.test(d));
+  if (invalidos.length) {
+    est.innerHTML = `<span class="error">Formato inválido: ${invalidos.join(', ')}</span>`;
+    return;
+  }
+
   btn.disabled = true;
   est.textContent = 'Guardando…';
   try {
@@ -447,6 +499,8 @@ async function guardarDestino() {
       const errores = Array.isArray(d.detail) ? d.detail.join(' · ') : (d.detail || r.status);
       throw new Error(errores);
     }
+    destinatariosGuardados = d.destinatarios;
+    sincronizarBotonEnviar();
     est.innerHTML = `<span class="ok">Guardado.</span> El reporte se enviará a ${d.destinatarios.join(', ')}.`;
   } catch (e) {
     est.innerHTML = `<span class="error">No se pudo guardar: ${e.message}</span>`;
@@ -462,7 +516,7 @@ async function verPrevia() {
   const u = parseFloat($('umbral').value);
   box.innerHTML = '<div class="previa"><div class="skel" style="height:60px"></div></div>';
   try {
-    const q = new URLSearchParams({ umbral: String(u), destinatarios: dest });
+    const q = new URLSearchParams({ umbral: String(u), destinatarios: dest, capacidad: String(capacidadActual()) });
     if (sede) q.set('sede_id', sede);
     const r = await fetch('/reporte/correo?' + q);
     if (!r.ok) throw new Error('el servicio respondió ' + r.status);
@@ -478,11 +532,13 @@ async function verPrevia() {
   }
 }
 
-// El CSV se pide con el mismo umbral y la misma sede que hay en pantalla:
-// lo que se descarga tiene que ser lo que se esta viendo.
+// El CSV se pide con el mismo umbral, sede y capacidad que hay en pantalla:
+// lo que se descarga tiene que ser lo que se esta viendo, no la lista completa
+// de senalados cuando la capacidad ya marco a varios como "sin cupo".
 $('btnCsv').addEventListener('click', () => {
   const q = new URLSearchParams({
     umbral: $('umbral').value, formato: 'csv', limite: '1000',
+    capacidad: String(capacidadActual()),
   });
   const sede = $('sede').value;
   if (sede) q.set('sede_id', sede);
@@ -499,10 +555,12 @@ async function enviarAhora() {
     $('estadoDestino').innerHTML = '<span class="error">Cargá al menos un destinatario antes de enviar.</span>';
     return;
   }
+  // El boton ya queda deshabilitado si el campo difiere de lo guardado
+  // (sincronizarBotonEnviar), asi que esta confirmacion no necesita advertir
+  // sobre cambios sin guardar: si llego hasta aca, es porque coinciden.
   const ok = confirm(
     `Se enviará el reporte ahora a:\n\n${dest.join('\n')}\n\n` +
-    `Umbral ${u.toFixed(2).replace('.', ',')} · ${sede || 'todas las sedes'}\n\n` +
-    `Se envía a los destinatarios GUARDADOS. Si los cambiaste recién, guardá primero.`
+    `Umbral ${u.toFixed(2).replace('.', ',')} · ${sede || 'todas las sedes'}`
   );
   if (!ok) return;
 
@@ -510,7 +568,7 @@ async function enviarAhora() {
   btn.disabled = true;
   $('estadoDestino').textContent = 'Enviando…';
   try {
-    const q = new URLSearchParams({ umbral: String(u) });
+    const q = new URLSearchParams({ umbral: String(u), capacidad: String(capacidadActual()) });
     if (sede) q.set('sede_id', sede);
     const r = await fetch('/reporte/enviar?' + q, { method: 'POST' });
     const d = await r.json();
@@ -528,6 +586,7 @@ async function enviarAhora() {
 $('btnPrevia').addEventListener('click', verPrevia);
 $('btnGuardarDestino').addEventListener('click', guardarDestino);
 $('btnEnviar').addEventListener('click', enviarAhora);
+$('destinatarios').addEventListener('input', sincronizarBotonEnviar);
 cargarDestino();
 $('umbral').addEventListener('input', pintar);
 $('capacidad').addEventListener('input', pintar);
@@ -536,6 +595,9 @@ $('btnEval').addEventListener('click', evaluar);
 
 salud();
 cargar();
+// Re-consulta periodica: si el modelo se cae a mitad de una sesion larga, el
+// punto de estado no debe quedar en verde hasta que alguien recargue a mano.
+setInterval(salud, 30000);
 </script>
 </body>
 </html>

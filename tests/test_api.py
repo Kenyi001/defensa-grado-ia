@@ -264,3 +264,40 @@ def test_vista_previa_y_csv_cuentan_lo_mismo(client: TestClient) -> None:
     csv = client.get("/reporte", params={**params, "formato": "csv", "limite": 1000}).text
     filas = len([l for l in csv.splitlines()[1:] if l.strip()])
     assert previa["adjunto"]["filas"] == filas
+
+
+def test_capacidad_recorta_el_csv(client: TestClient) -> None:
+    """La capacidad tiene que recortar la descarga, no solo la vista en pantalla.
+
+    Sin esto, un operador ve "sin cupo" marcado en gris en la tabla pero se
+    lleva la lista completa de señalados — la brecha mas seria del analisis
+    critico del 8 de agosto (ver docs/CRITICA-Y-MEJORAS.md).
+    """
+    params = {"umbral": 0.5, "formato": "csv", "limite": 1000}
+    sin_capacidad = client.get("/reporte", params=params).text
+    total = len([l for l in sin_capacidad.splitlines()[1:] if l.strip()])
+    assert total > 5, "el umbral 0.5 deberia señalar mas de 5 estudiantes en la poblacion demo"
+
+    con_capacidad = client.get("/reporte", params={**params, "capacidad": 5}).text
+    filas = [l for l in con_capacidad.splitlines()[1:] if l.strip()]
+    assert len(filas) == 5
+    # La prioridad tiene que seguir siendo 1..5: se recorta la cola, no se
+    # cambia el orden de quien va primero.
+    assert [l.split(",")[0] for l in filas] == ["1", "2", "3", "4", "5"]
+
+
+def test_capacidad_recorta_el_adjunto_pero_no_el_resumen(client: TestClient) -> None:
+    """El correo tiene que seguir informando el riesgo real, aunque el adjunto
+    accionable se recorte a la capacidad del periodo — son dos cosas distintas:
+    cuantos estan en riesgo, y a cuantos se llega a atender.
+    """
+    params = {"umbral": 0.5}
+    sin_capacidad = client.get("/reporte/correo", params=params).json()
+    total_real = sin_capacidad["adjunto"]["filas"]
+    assert total_real > 5
+
+    con_capacidad = client.get("/reporte/correo", params={**params, "capacidad": 5}).json()
+    assert con_capacidad["adjunto"]["filas"] == 5
+    # El cuerpo sigue contando el total real de señalados, no los 5 del adjunto.
+    assert f"Se identificaron {total_real} estudiantes" in con_capacidad["cuerpo"]
+    assert con_capacidad["cuerpo"] == sin_capacidad["cuerpo"]

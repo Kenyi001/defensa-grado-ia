@@ -39,12 +39,19 @@ services:
         value: bienestar@utepsa.edu
     # El disco hace que los destinatarios sobrevivan a un redespliegue. Sin el
     # (plan gratuito), la configuracion vuelve a REPORTE_EMAIL_TO cada vez.
-    # Requiere un plan de pago; queda declarado para cuando lo haya.
-    # disk:
-    #   name: datos
-    #   mountPath: /opt/render/project/src/data
-    #   sizeGB: 1
-    # Con disco, ademas: DESTINO_PATH=/opt/render/project/src/data/destino.json
+    # Requiere un plan de pago. Declarado como codigo, pero NO SE APLICA SOLO:
+    # el servicio real no esta gobernado por este Blueprint (ver nota de arriba).
+    # Para que tome efecto hay que, en el dashboard de Render:
+    #   1. Settings -> Instance Type -> subir de Free a Starter (usa creditos)
+    #   2. Settings -> Disks -> Add Disk, con estos mismos valores
+    #   3. Agregar la variable DESTINO_PATH=/opt/render/project/src/data/destino.json
+    # El paso 3 SI se puede hacer por API/MCP una vez exista el disco (no es un
+    # secreto); los pasos 1 y 2 son cambios de plan y no hay tool de Render que
+    # los exponga — quedan para hacerse a mano desde el dashboard.
+    disk:
+      name: datos
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
     #
     # NO HAY CRON JOB, a proposito: el reporte se envia cuando alguien lo decide
     # desde el panel. Ver POST /reporte/enviar.

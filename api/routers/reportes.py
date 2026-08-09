@@ -105,7 +105,13 @@ def actualizar_destino(destinatarios: list[str] = Body(..., embed=True)):
     return {"guardado": True, **guardar_destino(limpios)}
 
 
-def _componer(estado, umbral: float, sede_id: Optional[str], destinatarios: str = ""):
+def _componer(
+    estado,
+    umbral: float,
+    sede_id: Optional[str],
+    destinatarios: str = "",
+    capacidad: Optional[int] = None,
+):
     """Arma el correo y el CSV adjunto de una sola pasada.
 
     Lo usan la vista previa y el envio real, para que sean necesariamente lo
@@ -124,6 +130,10 @@ def _componer(estado, umbral: float, sede_id: Optional[str], destinatarios: str 
         modelo_version=estado.modelo_version,
     )
     senalados = [e for e in data["estudiantes"] if e["en_riesgo"]]
+    # La capacidad recorta el adjunto (lo accionable), nunca el resumen: el
+    # cuerpo del correo sigue informando el total real de senalados, que es
+    # el numero de riesgo, no la cantidad que entra en la capacidad del periodo.
+    adjuntables = senalados[:capacidad] if capacidad else senalados
     sede_txt = sede_id or "todas las sedes"
     # Sin destinatarios explicitos se usan los configurados. Asi el envio real,
     # que no pasa ninguno, manda exactamente a quien dice la pantalla.
@@ -132,9 +142,9 @@ def _componer(estado, umbral: float, sede_id: Optional[str], destinatarios: str 
         "asunto": f"Alerta temprana de desercion - {sede_txt}",
         "destinatarios": pedidos or leer_destino()["destinatarios"],
         "cuerpo": resumen_correo(data["estudiantes"], umbral, sede_id),
-        "adjunto": {"nombre": "alerta_temprana.csv", "filas": len(senalados)},
+        "adjunto": {"nombre": "alerta_temprana.csv", "filas": len(adjuntables)},
     }
-    return correo, armar_csv(senalados)
+    return correo, armar_csv(adjuntables)
 
 
 @router.get("/reporte/correo", response_model=None)
@@ -143,6 +153,12 @@ def vista_previa_correo(
     sede_id: Optional[str] = Query(default=None, max_length=64),
     umbral: float = Query(default=UMBRAL_DEFAULT, ge=0, le=1),
     destinatarios: str = Query(default="", max_length=300),
+    capacidad: Optional[int] = Query(
+        default=None,
+        ge=1,
+        le=LIMITE_REPORTE_MAX,
+        description="Recorta el adjunto a los primeros N senalados (capacidad de tutorias del periodo)",
+    ),
 ):
     """Devuelve el correo exacto que recibiria Bienestar, sin enviarlo.
 
@@ -150,7 +166,7 @@ def vista_previa_correo(
     de programarlo. Las credenciales SMTP viven en variables de entorno del
     servicio: **nunca se piden por la interfaz**.
     """
-    correo, _ = _componer(request.app.state, umbral, sede_id, destinatarios)
+    correo, _ = _componer(request.app.state, umbral, sede_id, destinatarios, capacidad)
     return correo
 
 
@@ -159,6 +175,12 @@ def enviar_ahora(
     request: Request,
     sede_id: Optional[str] = Query(default=None, max_length=64),
     umbral: float = Query(default=UMBRAL_DEFAULT, ge=0, le=1),
+    capacidad: Optional[int] = Query(
+        default=None,
+        ge=1,
+        le=LIMITE_REPORTE_MAX,
+        description="Recorta el adjunto a los primeros N senalados (capacidad de tutorias del periodo)",
+    ),
 ):
     """Envia el reporte en el momento, a los destinatarios configurados.
 
@@ -170,7 +192,7 @@ def enviar_ahora(
     configurados, que son los que muestra la pantalla. Un endpoint que acepte
     destinatarios arbitrarios por HTTP es un relay de correo abierto.
     """
-    correo, csv_texto = _componer(request.app.state, umbral, sede_id)
+    correo, csv_texto = _componer(request.app.state, umbral, sede_id, capacidad=capacidad)
     try:
         return enviar(correo, csv_texto)
     except SMTPNoConfigurado as exc:
@@ -210,6 +232,15 @@ def reporte(
     limite: int = Query(default=LIMITE_REPORTE_DEFAULT, ge=1, le=LIMITE_REPORTE_MAX),
     desplazamiento: int = Query(default=0, ge=0),
     formato: Literal["json", "csv"] = Query(default="json"),
+    capacidad: Optional[int] = Query(
+        default=None,
+        ge=1,
+        le=LIMITE_REPORTE_MAX,
+        description=(
+            "Solo aplica con formato=csv: recorta la descarga a los primeros N "
+            "senalados (capacidad de tutorias del periodo)."
+        ),
+    ),
 ):
     """
     Agrega predicciones sobre la poblacion cargada (Enrolled UCI o demo sintetica).
@@ -244,6 +275,11 @@ def reporte(
         # trabajo: mandar tambien a los que no superan el umbral es ruido, y
         # ademas contradice el resumen ("N estudiantes por encima del umbral").
         senalados = [e for e in data["estudiantes"] if e["en_riesgo"]]
+        # La capacidad recorta lo que se descarga: si el operador ve "sin cupo"
+        # en pantalla para los que exceden la capacidad, el archivo que se lleva
+        # tiene que reflejar exactamente eso, no la lista completa de senalados.
+        if capacidad:
+            senalados = senalados[:capacidad]
         return PlainTextResponse(
             armar_csv(senalados, desde=desplazamiento + 1),
             media_type="text/csv",
