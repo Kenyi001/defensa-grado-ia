@@ -7,7 +7,7 @@ import io
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 
 from api.config import (
     CRITERIO_PRECISION_MIN,
@@ -24,8 +24,10 @@ from api.logica.reporte import (
     armar_reporte,
     desglose_riesgo,
     nivel_riesgo,
+    resumen_confiabilidad,
     resumen_correo,
 )
+from api.logica.pdf_ejecutivo import renderizar_pdf_ejecutivo
 from api.schemas import ReporteOutput
 
 router = APIRouter(tags=["reportes"])
@@ -164,7 +166,11 @@ def _componer(
         "asunto": f"Alerta temprana de desercion - {sede_txt}",
         "destinatarios": pedidos or leer_destino()["destinatarios"],
         "cuerpo": resumen_correo(data["estudiantes"], umbral, sede_id),
-        "adjunto": {"nombre": "alerta_temprana.csv", "filas": len(adjuntables)},
+        "adjunto": {
+            "nombre": "alerta_temprana.csv",
+            "mimetype": "text/csv",
+            "filas": len(adjuntables),
+        },
     }
     return correo, armar_csv(adjuntables)
 
@@ -313,13 +319,8 @@ def reporte(
     return ReporteOutput(**data)
 
 
-@router.get("/reporte/ejecutivo", response_model=None)
-def reporte_ejecutivo(
-    request: Request,
-    umbral: float = Query(default=UMBRAL_DEFAULT, ge=0, le=1),
-    sede_id: Optional[str] = Query(default=None, max_length=64),
-):
-    """Resumen ejecutivo de una pagina, armado con los datos de AHORA.
+def _datos_ejecutivo(estado, umbral: float, sede_id: Optional[str]) -> dict[str, Any]:
+    """Arma el resumen ejecutivo con los datos de AHORA.
 
     Mismo contenido narrativo que el Reporte-Ejecutivo-Vicerrectorado.docx (el
     entregable estatico de la tesis), pero con los numeros recalculados en
@@ -335,8 +336,11 @@ def reporte_ejecutivo(
     exigiria cargar el dataset de entrenamiento completo al servicio por una
     ganancia nula, asi que se tratan como constante documentada -- igual que
     ya se hace con metricas_test.
+
+    Una sola funcion para la pantalla, el PDF y el correo: si cada uno armara
+    su propio texto, lo que se ve en el backoffice podria dejar de coincidir
+    con lo que se descarga o se manda.
     """
-    estado = request.app.state
     if getattr(estado, "poblacion", None) is None:
         raise HTTPException(status_code=503, detail="Poblacion de reporte no disponible")
 
@@ -352,20 +356,28 @@ def reporte_ejecutivo(
     metricas = getattr(estado, "metricas_test", None) or {}
     recall = metricas.get("recall")
     precision = metricas.get("precision")
+    roc_auc = metricas.get("roc_auc")
 
     return {
+        "titulo": "Sistema de alerta temprana para la deserción estudiantil — Resumen ejecutivo",
         "el_problema": (
             "En los ultimos tres anos, la desercion durante los primeros cuatro "
             "semestres paso del 12% al 18%. La institucion identifica al "
             "estudiante que abandona cuando ya se fue, momento en el que "
             "ninguna medida de apoyo es posible. El sistema invierte ese orden: "
-            "senala quienes estan en riesgo mientras todavia cursan."
+            "senala quienes estan en riesgo mientras todavia cursan. Este "
+            "aumento implica menos graduados, menor acreditación y pérdida de "
+            "ingresos por matrícula futura, lo que representa un riesgo para "
+            "la sostenibilidad y competitividad de la institución."
         ),
         "que_hace_el_sistema": {
             "resumen": (
                 "Identifica, con base en el desempeno academico y financiero ya "
                 "registrado, a los estudiantes con mayor riesgo de abandonar, y "
-                "prioriza a quien contactar primero."
+                "prioriza a quien contactar primero. Esta información queda "
+                "disponible para que Bienestar y el Vicerrectorado prioricen "
+                "decisiones de intervención con datos verificables, generada "
+                "cuando se la solicita."
             ),
             "bullets": [
                 "Clasifica a cada estudiante en un nivel de riesgo -- alto, medio o bajo -- nunca en una etiqueta de \"desertor\".",
@@ -375,7 +387,7 @@ def reporte_ejecutivo(
         "que_tan_confiable_es": {
             "recall": recall,
             "precision": precision,
-            "roc_auc": metricas.get("roc_auc"),
+            "roc_auc": roc_auc,
             "criterio_recall": CRITERIO_RECALL_MIN,
             "criterio_precision": CRITERIO_PRECISION_MIN,
             "cumple_criterio": bool(
@@ -383,6 +395,9 @@ def reporte_ejecutivo(
                 and precision is not None
                 and recall >= CRITERIO_RECALL_MIN
                 and precision >= CRITERIO_PRECISION_MIN
+            ),
+            "resumen": resumen_confiabilidad(
+                recall, precision, roc_auc, CRITERIO_RECALL_MIN, CRITERIO_PRECISION_MIN
             ),
         },
         "situacion_actual": {
@@ -410,4 +425,85 @@ def reporte_ejecutivo(
             "El sistema se construyo con datos de una institucion extranjera comparable y debe recalibrarse con datos propios antes de un uso real.",
             "Genero, nacionalidad y nivel educativo de los padres no se usan para asignar recursos: ninguna decision puede fundarse en atributos que el estudiante no eligio.",
         ],
+        "proximo_paso": (
+            "Se recomienda iniciar un piloto institucional en primer año, con "
+            "monitoreo de resultados y ajuste del modelo cada período."
+        ),
     }
+
+
+@router.get("/reporte/ejecutivo", response_model=None)
+def reporte_ejecutivo(
+    request: Request,
+    umbral: float = Query(default=UMBRAL_DEFAULT, ge=0, le=1),
+    sede_id: Optional[str] = Query(default=None, max_length=64),
+):
+    """Resumen ejecutivo de una pagina, armado con los datos de AHORA.
+
+    Ver _datos_ejecutivo() para el detalle: este endpoint es un envoltorio
+    delgado sobre esa funcion, compartida tambien con la descarga en PDF y el
+    envio por correo.
+    """
+    return _datos_ejecutivo(request.app.state, umbral, sede_id)
+
+
+@router.get("/reporte/ejecutivo/pdf", response_model=None)
+def reporte_ejecutivo_pdf(
+    request: Request,
+    umbral: float = Query(default=UMBRAL_DEFAULT, ge=0, le=1),
+    sede_id: Optional[str] = Query(default=None, max_length=64),
+):
+    """El mismo resumen ejecutivo, como PDF descargable.
+
+    Mismos datos que GET /reporte/ejecutivo -- esto solo cambia el formato de
+    salida, no arma un contenido distinto.
+    """
+    datos = _datos_ejecutivo(request.app.state, umbral, sede_id)
+    pdf_bytes = renderizar_pdf_ejecutivo(datos)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="reporte-ejecutivo.pdf"'},
+    )
+
+
+@router.post("/reporte/ejecutivo/enviar", response_model=None)
+def enviar_ejecutivo_ahora(
+    request: Request,
+    umbral: float = Query(default=UMBRAL_DEFAULT, ge=0, le=1),
+    sede_id: Optional[str] = Query(default=None, max_length=64),
+):
+    """Envia el resumen ejecutivo (en PDF) a los destinatarios configurados.
+
+    Mismo criterio de seguridad que POST /reporte/enviar: no recibe
+    destinatarios por parametro, siempre manda a los que estan guardados en
+    /reporte/destino -- un endpoint que aceptara destinatarios arbitrarios
+    por HTTP seria un relay de correo abierto.
+    """
+    datos = _datos_ejecutivo(request.app.state, umbral, sede_id)
+    pdf_bytes = renderizar_pdf_ejecutivo(datos)
+    correo = {
+        "asunto": "Resumen ejecutivo — Sistema de alerta temprana",
+        "destinatarios": leer_destino()["destinatarios"],
+        "cuerpo": (
+            "Se adjunta el resumen ejecutivo del sistema de alerta temprana, "
+            "generado con los datos actuales. El detalle completo esta en el "
+            "PDF adjunto."
+        ),
+        "adjunto": {
+            "nombre": "reporte-ejecutivo.pdf",
+            "mimetype": "application/pdf",
+            "filas": None,
+        },
+    }
+    try:
+        return enviar(correo, pdf_bytes)
+    except ProveedorNoConfigurado as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo contactar al servidor de correo: {exc}",
+        ) from exc

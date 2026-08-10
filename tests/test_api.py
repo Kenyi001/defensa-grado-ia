@@ -175,6 +175,29 @@ def test_reporte_ejecutivo_desglose_no_depende_del_umbral(client: TestClient) ->
     assert a["priorizados_con_este_umbral"] != b["priorizados_con_este_umbral"]
 
 
+def test_reporte_ejecutivo_incluye_titulo_y_proximo_paso(client: TestClient) -> None:
+    """Los 4 agregados de contenido pedidos tienen que estar en el JSON: si
+    faltan ahi, tampoco van a estar en el PDF ni en el correo, que se arman
+    con el mismo dict.
+    """
+    body = client.get("/reporte/ejecutivo", params={"umbral": 0.5}).json()
+    assert body["titulo"]
+    assert "resumen" in body["que_tan_confiable_es"]
+    assert body["que_tan_confiable_es"]["resumen"]
+    assert body["proximo_paso"]
+    # La frase de impacto institucional se agrego al final de "el problema".
+    assert "acreditación" in body["el_problema"]
+
+
+def test_reporte_ejecutivo_pdf_devuelve_pdf_valido(client: TestClient) -> None:
+    """La descarga en PDF tiene que ser un PDF real, no un JSON con otra
+    extension."""
+    r = client.get("/reporte/ejecutivo/pdf", params={"umbral": 0.5})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content[:4] == b"%PDF"
+
+
 def test_reporte_csv_nunca_etiqueta_desertor(client: TestClient) -> None:
     """El CSV que recibe Bienestar no puede rotular a nadie como 'desertor'.
 
@@ -397,6 +420,7 @@ def test_enviar_con_resend(client: TestClient, tmp_path, monkeypatch) -> None:
 
     assert capturado["url"] == "https://api.resend.com/emails"
     assert capturado["headers"]["Authorization"] == "Bearer re_test_falsa"
+
     payload = capturado["payload"]
     assert payload["from"] == "alertas@utepsa.edu"
     assert payload["to"] == ["bienestar@utepsa.edu"]
@@ -406,6 +430,54 @@ def test_enviar_con_resend(client: TestClient, tmp_path, monkeypatch) -> None:
     assert csv_decodificado.splitlines()[0] == (
         "prioridad,estudiante_id,carrera,sede,nivel_riesgo,probabilidad,motivos,accion_sugerida"
     )
+
+
+def test_enviar_ejecutivo_sin_proveedor_avisa_en_vez_de_romper(
+    client: TestClient, monkeypatch
+) -> None:
+    """Mismo contrato que el envio operativo: sin proveedor, 503 y no 500."""
+    monkeypatch.delenv("REPORTE_SMTP_HOST", raising=False)
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    r = client.post("/reporte/ejecutivo/enviar", params={"umbral": 0.5})
+    assert r.status_code == 503
+    assert "proveedor de correo" in r.json()["detail"]
+
+
+def test_enviar_ejecutivo_usa_los_destinatarios_configurados(
+    client: TestClient, tmp_path, monkeypatch
+) -> None:
+    """Igual que el envio operativo: no acepta destinatarios por parametro, y
+    el adjunto que le llega a envio.enviar() tiene que ser el PDF en bytes,
+    no el texto del CSV.
+    """
+    from api.logica import destino as mod_destino
+    from api.logica import envio as mod_envio
+
+    monkeypatch.setattr(mod_destino, "RUTA_DESTINO", tmp_path / "destino.json")
+    client.put(
+        "/reporte/destino",
+        json={"destinatarios": ["vicerrectorado@utepsa.edu"], "frecuencia": "Semanal, lunes 09:00"},
+    )
+
+    capturado: dict = {}
+
+    monkeypatch.setenv("REPORTE_SMTP_HOST", "smtp.ejemplo.invalido")
+    monkeypatch.setattr(
+        mod_envio,
+        "enviar",
+        lambda correo, adjunto: capturado.update(correo=correo, adjunto=adjunto)
+        or {"enviado": True, **{k: correo[k] for k in ("destinatarios", "asunto", "adjunto")}},
+    )
+    from api.routers import reportes as mod_router
+
+    monkeypatch.setattr(mod_router, "enviar", mod_envio.enviar)
+
+    r = client.post("/reporte/ejecutivo/enviar", params={"umbral": 0.5})
+    assert r.status_code == 200
+    assert r.json()["destinatarios"] == ["vicerrectorado@utepsa.edu"]
+    assert isinstance(capturado["adjunto"], bytes)
+    assert capturado["adjunto"][:4] == b"%PDF"
+    assert capturado["correo"]["adjunto"]["mimetype"] == "application/pdf"
 
 
 def test_vista_previa_y_csv_cuentan_lo_mismo(client: TestClient) -> None:

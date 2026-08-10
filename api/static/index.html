@@ -224,9 +224,18 @@
   </section>
 
   <section class="panel">
-    <h2>Reporte ejecutivo — con los datos de ahora</h2>
-    <p class="ayuda">Mismo contenido que el resultado #7 del caso (una página, para el Vicerrectorado), pero recalculado en vivo: cambiá el umbral de arriba y volvé a pedirlo.</p>
-    <button id="btnReporteEjecutivo" class="secundario" type="button">Ver el reporte ejecutivo actual</button>
+    <div class="cabecera-panel">
+      <div>
+        <h2>Reporte ejecutivo — con los datos de ahora</h2>
+        <p class="ayuda">Mismo contenido que el resultado #7 del caso (una página, para el Vicerrectorado), pero recalculado en vivo: cambiá el umbral de arriba y volvé a pedirlo.</p>
+      </div>
+      <button id="btnPdfEjecutivo" class="secundario" type="button">Descargar PDF</button>
+    </div>
+    <div class="acciones-envio">
+      <button id="btnReporteEjecutivo" class="secundario" type="button">Ver el reporte ejecutivo actual</button>
+      <button id="btnEnviarEjecutivo" class="secundario" type="button" hidden>Enviar por correo</button>
+    </div>
+    <p class="nota" id="estadoEjecutivo" role="status" aria-live="polite"></p>
     <div id="ejecutivoBox"></div>
   </section>
 
@@ -488,6 +497,7 @@ async function cargarDestino() {
     // "Enviar ahora" solo aparece si el servicio tiene servidor de correo.
     // Un botón que no puede funcionar es peor que no tenerlo.
     $('btnEnviar').hidden = !d.envio_disponible;
+    $('btnEnviarEjecutivo').hidden = !d.envio_disponible;
     $('sinSmtp').hidden = !!d.envio_disponible;
     $('estadoDestino').textContent = d.destinatarios.length
       ? ''
@@ -589,10 +599,11 @@ async function verReporteEjecutivo() {
     const s = d.situacion_actual;
     const h = d.que_explica_el_abandono;
     box.innerHTML = `<div class="previa">
+      <p style="margin-top:0"><strong>${escaparHtml(d.titulo)}</strong></p>
       <p><strong>El problema</strong><br>${escaparHtml(d.el_problema)}</p>
       <p><strong>Qué hace el sistema</strong><br>${escaparHtml(d.que_hace_el_sistema.resumen)}</p>
       <ul>${d.que_hace_el_sistema.bullets.map(b => `<li>${escaparHtml(b)}</li>`).join('')}</ul>
-      <p><strong>Qué tan confiable es</strong><br>
+      <p><strong>Qué tan confiable es</strong><br>${escaparHtml(c.resumen)}<br>
         Recall <strong>${pct(c.recall)}</strong> (≥${pct(c.criterio_recall)} ${c.recall >= c.criterio_recall ? '✓' : '✗'})
         · Precisión <strong>${pct(c.precision)}</strong> (≥${pct(c.criterio_precision)} ${c.precision >= c.criterio_precision ? '✓' : '✗'})
         · AUC <strong>${c.roc_auc.toFixed(3).replace('.', ',')}</strong></p>
@@ -609,11 +620,59 @@ async function verReporteEjecutivo() {
       <ul>${d.tres_medidas_recomendadas.map(m => `<li>${escaparHtml(m)}</li>`).join('')}</ul>
       <p><strong>Consideraciones antes de implementar</strong></p>
       <ul>${d.consideraciones_antes_de_implementar.map(cn => `<li>${escaparHtml(cn)}</li>`).join('')}</ul>
+      <p><strong>Próximo paso</strong><br>${escaparHtml(d.proximo_paso)}</p>
     </div>`;
   } catch (e) {
     box.innerHTML = `<div class="error" role="alert">No se pudo generar el reporte ejecutivo: ${e.message}</div>`;
   }
 }
+
+// Mismo patron que la descarga del CSV: navegar directo al endpoint, sin JS
+// de por medio, para que el navegador maneje la descarga.
+$('btnPdfEjecutivo').addEventListener('click', () => {
+  const sede = $('sede').value;
+  const u = parseFloat($('umbral').value);
+  const q = new URLSearchParams({ umbral: String(u) });
+  if (sede) q.set('sede_id', sede);
+  window.location.href = '/reporte/ejecutivo/pdf?' + q;
+});
+
+// Mismo patron de confirmacion que enviarAhora(): destinatarios a la vista,
+// no un "¿estás seguro?" generico. Reusa los destinatarios ya configurados
+// arriba -- el reporte ejecutivo no tiene su propia lista de destinatarios.
+async function enviarEjecutivoAhora() {
+  const dest = $('destinatarios').value.split(',').map(s => s.trim()).filter(Boolean);
+  const sede = $('sede').value;
+  const u = parseFloat($('umbral').value);
+  if (!dest.length) {
+    $('estadoEjecutivo').innerHTML = '<span class="error">Cargá al menos un destinatario en el panel de arriba antes de enviar.</span>';
+    return;
+  }
+  const ok = confirm(
+    `Se enviará el reporte ejecutivo (PDF) ahora a:\n\n${dest.join('\n')}\n\n` +
+    `Umbral ${u.toFixed(2).replace('.', ',')} · ${sede || 'todas las sedes'}`
+  );
+  if (!ok) return;
+
+  const btn = $('btnEnviarEjecutivo');
+  btn.disabled = true;
+  $('estadoEjecutivo').textContent = 'Enviando…';
+  try {
+    const q = new URLSearchParams({ umbral: String(u) });
+    if (sede) q.set('sede_id', sede);
+    const r = await fetch('/reporte/ejecutivo/enviar?' + q, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || ('el servicio respondió ' + r.status));
+    $('estadoEjecutivo').innerHTML =
+      `<span class="ok">Enviado</span> a ${d.destinatarios.join(', ')} — reporte-ejecutivo.pdf adjunto.`;
+  } catch (e) {
+    $('estadoEjecutivo').innerHTML = `<span class="error">No se pudo enviar: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$('btnEnviarEjecutivo').addEventListener('click', enviarEjecutivoAhora);
 
 // El CSV se pide con el mismo umbral, sede y capacidad que hay en pantalla:
 // lo que se descarga tiene que ser lo que se esta viendo, no la lista completa

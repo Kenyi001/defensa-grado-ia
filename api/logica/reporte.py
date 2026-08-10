@@ -112,6 +112,37 @@ def nivel_riesgo(probabilidad: float) -> str:
     return "BAJO"
 
 
+def _pct(x: float) -> str:
+    """Mismo formato que ya usa el frontend (pct() en index.html): un decimal,
+    coma en vez de punto. Una sola funcion para que JSON en pantalla, PDF y
+    correo digan exactamente el mismo numero con el mismo formato."""
+    return f"{x * 100:.1f}".replace(".", ",") + "%"
+
+
+def resumen_confiabilidad(
+    recall: Optional[float],
+    precision: Optional[float],
+    roc_auc: Optional[float],
+    criterio_recall: float,
+    criterio_precision: float,
+) -> str:
+    """Linea de una sola frase con las 3 metricas y sus metas, para el bloque
+    "Que tan confiable es" del reporte ejecutivo (pantalla, PDF y correo).
+
+    "(piloto)" es a proposito: aclara que son resultados medidos sobre el
+    conjunto de prueba del entrenamiento, no una validacion en produccion real
+    -- ya es la misma aclaracion que trae "consideraciones_antes_de_implementar".
+    """
+    if recall is None or precision is None or roc_auc is None:
+        return "Metricas del modelo no disponibles."
+    auc_txt = f"{roc_auc:.3f}".replace(".", ",")
+    return (
+        f"Desempeño del modelo (piloto): Recall {_pct(recall)} "
+        f"(meta ≥{_pct(criterio_recall)}), Precisión {_pct(precision)} "
+        f"(meta ≥{_pct(criterio_precision)}), AUC {auc_txt}."
+    )
+
+
 def desglose_riesgo(estudiantes: list[dict[str, Any]]) -> dict[str, int]:
     """Clasifica a TODA la poblacion recibida en ALTO/MEDIO/BAJO, en vivo.
 

@@ -49,7 +49,7 @@ def _remitente() -> str:
     return os.getenv("REPORTE_SMTP_USER") or RESEND_FROM_DEFAULT
 
 
-def _enviar_resend(correo: dict[str, Any], adjunto_csv: str, api_key: str) -> dict[str, Any]:
+def _enviar_resend(correo: dict[str, Any], adjunto_datos: bytes, api_key: str) -> dict[str, Any]:
     payload = {
         "from": _remitente(),
         "to": correo["destinatarios"],
@@ -58,7 +58,7 @@ def _enviar_resend(correo: dict[str, Any], adjunto_csv: str, api_key: str) -> di
         "attachments": [
             {
                 "filename": correo["adjunto"]["nombre"],
-                "content": base64.b64encode(adjunto_csv.encode("utf-8")).decode("ascii"),
+                "content": base64.b64encode(adjunto_datos).decode("ascii"),
             }
         ],
     }
@@ -74,16 +74,18 @@ def _enviar_resend(correo: dict[str, Any], adjunto_csv: str, api_key: str) -> di
         raise OSError(f"Resend respondio {r.status_code}: {r.text[:300]}")
 
 
-def _enviar_smtp(correo: dict[str, Any], adjunto_csv: str, host: str) -> dict[str, Any]:
+def _enviar_smtp(correo: dict[str, Any], adjunto_datos: bytes, host: str) -> dict[str, Any]:
     msg = EmailMessage()
     msg["Subject"] = correo["asunto"]
     msg["From"] = _remitente()
     msg["To"] = ", ".join(correo["destinatarios"])
     msg.set_content(correo["cuerpo"])
+    mimetype = correo["adjunto"].get("mimetype", "text/csv")
+    maintype, _, subtype = mimetype.partition("/")
     msg.add_attachment(
-        adjunto_csv.encode("utf-8"),
-        maintype="text",
-        subtype="csv",
+        adjunto_datos,
+        maintype=maintype or "application",
+        subtype=subtype or "octet-stream",
         filename=correo["adjunto"]["nombre"],
     )
 
@@ -97,8 +99,14 @@ def _enviar_smtp(correo: dict[str, Any], adjunto_csv: str, host: str) -> dict[st
         smtp.send_message(msg)
 
 
-def enviar(correo: dict[str, Any], adjunto_csv: str) -> dict[str, Any]:
-    """Envia el correo ya armado. `correo` es la respuesta de /reporte/correo.
+def enviar(correo: dict[str, Any], adjunto_datos: bytes | str) -> dict[str, Any]:
+    """Envia el correo ya armado. `correo` es la respuesta de /reporte/correo
+    (o del equivalente para el reporte ejecutivo).
+
+    `adjunto_datos` acepta texto (el CSV de siempre, se codifica a UTF-8 aca
+    mismo) o bytes ya listos (el PDF del reporte ejecutivo) -- un solo camino
+    de envio para los dos tipos de adjunto, en vez de duplicar la logica de
+    Resend/SMTP por cada formato.
 
     Devuelve un resumen de lo enviado — nunca las credenciales.
     """
@@ -106,13 +114,15 @@ def enviar(correo: dict[str, Any], adjunto_csv: str) -> dict[str, Any]:
     if not destinatarios:
         raise ValueError("No hay destinatarios configurados.")
 
+    contenido = adjunto_datos.encode("utf-8") if isinstance(adjunto_datos, str) else adjunto_datos
+
     resend_key = os.getenv("RESEND_API_KEY")
     smtp_host = os.getenv("REPORTE_SMTP_HOST")
 
     if resend_key:
-        _enviar_resend(correo, adjunto_csv, resend_key)
+        _enviar_resend(correo, contenido, resend_key)
     elif smtp_host:
-        _enviar_smtp(correo, adjunto_csv, smtp_host)
+        _enviar_smtp(correo, contenido, smtp_host)
     else:
         raise ProveedorNoConfigurado(
             "El servicio no tiene un proveedor de correo configurado. Se configura "
