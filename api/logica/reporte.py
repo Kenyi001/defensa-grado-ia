@@ -136,10 +136,15 @@ def resumen_confiabilidad(
     if recall is None or precision is None or roc_auc is None:
         return "Metricas del modelo no disponibles."
     auc_txt = f"{roc_auc:.3f}".replace(".", ",")
+    de_cada_100_detectados = round(recall * 100)
+    de_cada_100_marcados_correctos = round(precision * 100)
     return (
         f"Desempeño del modelo (piloto): Recall {_pct(recall)} "
         f"(meta ≥{_pct(criterio_recall)}), Precisión {_pct(precision)} "
-        f"(meta ≥{_pct(criterio_precision)}), AUC {auc_txt}."
+        f"(meta ≥{_pct(criterio_precision)}), AUC {auc_txt}. En palabras simples: "
+        f"de cada 100 estudiantes que realmente están en riesgo, el sistema "
+        f"detecta {de_cada_100_detectados}; de cada 100 que el sistema marca en "
+        f"riesgo, {de_cada_100_marcados_correctos} realmente lo están."
     )
 
 
@@ -162,16 +167,39 @@ def desglose_riesgo(estudiantes: list[dict[str, Any]]) -> dict[str, int]:
 
 
 # Comparaciones Dropout-vs-Graduate calculadas UNA VEZ sobre el dataset de
-# entrenamiento (notebook, Fase 2 EDA / Fase 5 evaluacion) -- no son datos de
-# la poblacion de inferencia (los 794 Enrolled) y no cambian salvo que se
-# reentrene el modelo con una cohorte nueva. Se exponen como constante
-# documentada, igual que metricas_test: no se recalculan en produccion porque
-# eso exigiria cargar el dataset de entrenamiento completo al servicio.
+# entrenamiento -- no son datos de la poblacion de inferencia (los 794
+# Enrolled) y no cambian salvo que se reentrene el modelo con una cohorte
+# nueva. Se exponen como constante documentada, igual que metricas_test: no
+# se recalculan en produccion porque eso exigiria cargar el dataset completo
+# de entrenamiento al servicio. Verificadas contra el notebook (celda de
+# verificacion agregada despues de la 5.8, Fase 5 -> Fase 6): el groupby real
+# da Dropout 2.6/67.8%/9.4% y Graduate 6.2/98.7%/37.8%, que redondean
+# exactamente a estos valores.
 HALLAZGOS_ENTRENAMIENTO = {
     "asignaturas_1er_semestre": {"desertor": 2.6, "graduado": 6.2},
     "matricula_al_dia_pct": {"desertor": 68, "graduado": 99},
     "con_beca_pct": {"desertor": 9, "graduado": 38},
 }
+
+
+def resumen_hallazgos(h: dict[str, dict[str, float]]) -> str:
+    """Frase narrativa para el bloque "Que explica el abandono" del reporte
+    ejecutivo (pantalla, PDF y correo) -- reemplaza el formato crudo
+    "X vs Y" por una comparacion legible sin tener que releer cual numero es
+    de quien. `h` tiene la misma forma que HALLAZGOS_ENTRENAMIENTO."""
+    asign = h["asignaturas_1er_semestre"]
+    matr = h["matricula_al_dia_pct"]
+    beca = h["con_beca_pct"]
+    return (
+        f"Quienes desertaron aprobaron muchas menos materias en el primer "
+        f"semestre ({asign['desertor']:g} en promedio, contra {asign['graduado']:g} "
+        f"de quienes se graduaron), tenían la matrícula al día con menos "
+        f"frecuencia ({matr['desertor']:g}% vs. {matr['graduado']:g}%) y contaban "
+        f"con beca con menos frecuencia ({beca['desertor']:g}% vs. {beca['graduado']:g}%). "
+        f"Son las diferencias más claras entre ambos grupos en el dataset de "
+        f"entrenamiento — el modelo las combina con muchas más variables, no "
+        f"decide por una sola."
+    )
 
 
 def motivos_y_accion(fila: Any) -> tuple[str, str]:

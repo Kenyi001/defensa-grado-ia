@@ -26,6 +26,7 @@ from api.logica.reporte import (
     nivel_riesgo,
     resumen_confiabilidad,
     resumen_correo,
+    resumen_hallazgos,
 )
 from api.logica.pdf_ejecutivo import renderizar_pdf_ejecutivo
 from api.schemas import ReporteOutput
@@ -415,7 +416,10 @@ def _datos_ejecutivo(estado, umbral: float, sede_id: Optional[str]) -> dict[str,
             "umbral_operativo": umbral,
             "priorizados_con_este_umbral": data["agregado"]["en_riesgo"],
         },
-        "que_explica_el_abandono": HALLAZGOS_ENTRENAMIENTO,
+        "que_explica_el_abandono": {
+            **HALLAZGOS_ENTRENAMIENTO,
+            "resumen": resumen_hallazgos(HALLAZGOS_ENTRENAMIENTO),
+        },
         "tres_medidas_recomendadas": [
             "1. Tutoria academica temprana. Activar un plan de acompanamiento para todo estudiante que apruebe menos de la mitad de las asignaturas de su primer semestre.",
             "2. Alerta financiera preventiva. Contactar al estudiante ante el primer incumplimiento de pago, ofreciendo alternativas de refinanciamiento.",

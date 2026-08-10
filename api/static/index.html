@@ -612,10 +612,7 @@ async function verReporteEjecutivo() {
         <strong>${s.en_riesgo_medio}</strong> riesgo medio, <strong>${s.en_riesgo_bajo}</strong> riesgo bajo.<br>
         Con el umbral operativo actual (<strong>${s.umbral_operativo.toFixed(2).replace('.', ',')}</strong>),
         <strong>${s.priorizados_con_este_umbral}</strong> quedarían priorizados este período.</p>
-      <p><strong>Qué explica el abandono</strong> (dataset de entrenamiento)<br>
-        Asignaturas 1er semestre: ${h.asignaturas_1er_semestre.desertor} vs ${h.asignaturas_1er_semestre.graduado} ·
-        Matrícula al día: ${h.matricula_al_dia_pct.desertor}% vs ${h.matricula_al_dia_pct.graduado}% ·
-        Con beca: ${h.con_beca_pct.desertor}% vs ${h.con_beca_pct.graduado}%</p>
+      <p><strong>Qué explica el abandono</strong> (dataset de entrenamiento)<br>${escaparHtml(h.resumen)}</p>
       <p><strong>Tres medidas recomendadas</strong></p>
       <ul>${d.tres_medidas_recomendadas.map(m => `<li>${escaparHtml(m)}</li>`).join('')}</ul>
       <p><strong>Consideraciones antes de implementar</strong></p>

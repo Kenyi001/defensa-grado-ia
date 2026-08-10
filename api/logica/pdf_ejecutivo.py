@@ -77,16 +77,16 @@ _ENCABEZADO = ParagraphStyle(
     parent=_ESTILOS["Heading2"],
     fontName="Times-Bold",
     fontSize=11.5,
-    spaceBefore=7,
-    spaceAfter=3,
+    spaceBefore=5.5,
+    spaceAfter=2.5,
     textColor=TINTA,
 )
 _CUERPO = ParagraphStyle(
     "CuerpoEjecutivo",
     parent=_ESTILOS["BodyText"],
     fontName="Times-Roman",
-    fontSize=9.3,
-    leading=12,
+    fontSize=9,
+    leading=11.3,
 )
 _ITEM = ParagraphStyle(
     "ItemEjecutivo",
@@ -132,7 +132,7 @@ def _kpi_cell(numero: str, etiqueta: str, color=TINTA) -> list:
 def _tabla_kpis(celdas: list[list]) -> Table:
     """Fila de tarjetas KPI: cada celda ya trae [numero, etiqueta] como
     Paragraphs (ver _kpi_cell). Ancho parejo entre columnas."""
-    ancho_col = (letter[0] - 3.4 * cm) / len(celdas)
+    ancho_col = (letter[0] - 3.2 * cm) / len(celdas)
     t = Table([celdas], colWidths=[ancho_col] * len(celdas))
     t.setStyle(
         TableStyle(
@@ -156,10 +156,10 @@ def renderizar_pdf_ejecutivo(datos: dict[str, Any]) -> bytes:
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        topMargin=1.0 * cm,
-        bottomMargin=1.0 * cm,
-        leftMargin=1.7 * cm,
-        rightMargin=1.7 * cm,
+        topMargin=0.8 * cm,
+        bottomMargin=0.8 * cm,
+        leftMargin=1.6 * cm,
+        rightMargin=1.6 * cm,
         title=datos["titulo"],
     )
 
@@ -220,13 +220,7 @@ def renderizar_pdf_ejecutivo(datos: dict[str, Any]) -> bytes:
 
     elementos += _bloque(
         "Qué explica el abandono (dataset de entrenamiento)",
-        (
-            f"Asignaturas 1er semestre: {h['asignaturas_1er_semestre']['desertor']} vs "
-            f"{h['asignaturas_1er_semestre']['graduado']} · "
-            f"Matrícula al día: {h['matricula_al_dia_pct']['desertor']}% vs "
-            f"{h['matricula_al_dia_pct']['graduado']}% · "
-            f"Con beca: {h['con_beca_pct']['desertor']}% vs {h['con_beca_pct']['graduado']}%"
-        ),
+        h["resumen"],
     )
     elementos += _lista("Tres medidas recomendadas", datos["tres_medidas_recomendadas"])
     elementos += _lista(
@@ -236,7 +230,7 @@ def renderizar_pdf_ejecutivo(datos: dict[str, Any]) -> bytes:
     elementos.append(Spacer(1, 5))
     caja_proximo_paso = Table(
         [[Paragraph(f"<b>Próximo paso.</b> {datos['proximo_paso']}", _PROXIMO_PASO)]],
-        colWidths=[letter[0] - 3.4 * cm],
+        colWidths=[letter[0] - 3.2 * cm],
     )
     caja_proximo_paso.setStyle(
         TableStyle(
