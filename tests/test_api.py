@@ -182,14 +182,19 @@ def test_destino_configurable(client: TestClient, tmp_path, monkeypatch) -> None
 
     r = client.put(
         "/reporte/destino",
-        json={"destinatarios": ["bienestar@utepsa.edu", "tutorias@utepsa.edu"]},
+        json={
+            "destinatarios": ["bienestar@utepsa.edu", "tutorias@utepsa.edu"],
+            "frecuencia": "Semanal, lunes 09:00",
+        },
     )
     assert r.status_code == 200
 
     leido = client.get("/reporte/destino").json()
     assert leido["destinatarios"] == ["bienestar@utepsa.edu", "tutorias@utepsa.edu"]
-    # No hay envio programado: la configuracion es a quien, no cada cuanto.
-    assert "frecuencia" not in leido
+    assert leido["frecuencia"] == "Semanal, lunes 09:00"
+    # La frecuencia es una referencia declarada, no un envio programado: no
+    # existe ningun proceso en el servicio que la lea para enviar solo.
+    assert "no dispara" in leido["frecuencia_nota"].lower()
 
     # Sin destinatarios en la query, la vista previa usa los configurados —
     # que es lo mismo que hace el envio real.
@@ -207,16 +212,47 @@ def test_destino_rechaza_datos_invalidos(client: TestClient, tmp_path, monkeypat
 
     monkeypatch.setattr(mod, "RUTA_DESTINO", tmp_path / "destino.json")
 
-    r = client.put("/reporte/destino", json={"destinatarios": ["no-es-un-correo"]})
+    r = client.put(
+        "/reporte/destino",
+        json={"destinatarios": ["no-es-un-correo"], "frecuencia": "Semanal"},
+    )
     assert r.status_code == 422
     assert "correo" in " ".join(r.json()["detail"]).lower()
 
     # Uno valido y uno invalido: tampoco pasa, y el error nombra al culpable.
-    r = client.put("/reporte/destino", json={"destinatarios": ["a@b.com", "roto@"]})
+    r = client.put(
+        "/reporte/destino",
+        json={"destinatarios": ["a@b.com", "roto@"], "frecuencia": "Semanal"},
+    )
     assert r.status_code == 422
     assert "roto@" in " ".join(r.json()["detail"])
 
-    r = client.put("/reporte/destino", json={"destinatarios": []})
+    r = client.put("/reporte/destino", json={"destinatarios": [], "frecuencia": "Semanal"})
+    assert r.status_code == 422
+
+
+def test_destino_rechaza_frecuencia_invalida(client: TestClient, tmp_path, monkeypatch) -> None:
+    """Una frecuencia vacia o demasiado larga tiene que fallar al guardar.
+
+    Es texto libre, no un cron real -- pero vacia no dice nada, y sin limite de
+    largo alguien puede pegar un parrafo entero en un campo pensado para "cada
+    cuanto".
+    """
+    from api.logica import destino as mod
+
+    monkeypatch.setattr(mod, "RUTA_DESTINO", tmp_path / "destino.json")
+
+    r = client.put(
+        "/reporte/destino",
+        json={"destinatarios": ["bienestar@utepsa.edu"], "frecuencia": ""},
+    )
+    assert r.status_code == 422
+    assert "frecuencia" in " ".join(r.json()["detail"]).lower()
+
+    r = client.put(
+        "/reporte/destino",
+        json={"destinatarios": ["bienestar@utepsa.edu"], "frecuencia": "x" * 61},
+    )
     assert r.status_code == 422
 
 
@@ -249,7 +285,7 @@ def test_enviar_usa_los_destinatarios_configurados(client: TestClient, tmp_path,
     monkeypatch.setattr(mod_destino, "RUTA_DESTINO", tmp_path / "destino.json")
     client.put(
         "/reporte/destino",
-        json={"destinatarios": ["bienestar@utepsa.edu"]},
+        json={"destinatarios": ["bienestar@utepsa.edu"], "frecuencia": "Semanal, lunes 09:00"},
     )
 
     capturado: dict = {}
@@ -288,7 +324,10 @@ def test_enviar_con_resend(client: TestClient, tmp_path, monkeypatch) -> None:
     from api.logica import envio as mod_envio
 
     monkeypatch.setattr(mod_destino, "RUTA_DESTINO", tmp_path / "destino.json")
-    client.put("/reporte/destino", json={"destinatarios": ["bienestar@utepsa.edu"]})
+    client.put(
+        "/reporte/destino",
+        json={"destinatarios": ["bienestar@utepsa.edu"], "frecuencia": "Semanal, lunes 09:00"},
+    )
 
     monkeypatch.delenv("REPORTE_SMTP_HOST", raising=False)
     monkeypatch.setenv("RESEND_API_KEY", "re_test_falsa")

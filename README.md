@@ -100,13 +100,15 @@ insertan en el documento Word de la defensa.
 
 ## Estado del notebook
 
-- **Fases 1 y 2** (Comprension del Negocio y de los Datos): resueltas y
-  verificadas -- carga, forma, tipos, nulos, distribucion del target y la primera
-  figura.
-- **Fases 3 a 6** (Preparacion, Modelado, Evaluacion, Implementacion): estan como
-  comentarios `# TODO` especificos. **Es a proposito.** El codigo hay que
-  escribirlo a mano: en la defensa se pregunta por que se tomo cada decision, y
-  eso no se puede responder sobre codigo que uno no escribio.
+Las **6 fases de CRISP-DM estan completas** (Comprension del Negocio, Comprension
+de los Datos, Preparacion, Modelado, Evaluacion, Implementacion), ejecutadas de
+punta a punta con `jupyter nbconvert --execute` sin errores. Incluye ademas
+secciones de profundizacion agregadas despues del modelado base: sensibilidad a
+los hiperparametros, curva de aprendizaje y diagnostico de sobreajuste, un modelo
+de "ventana temprana" (solo variables del 1er semestre), y una comparacion
+independiente contra 5 modelos alternativos (Dummy, KNN, arbol de decision
+individual, regresion logistica, XGBoost) bajo los mismos pliegues de validacion
+cruzada.
 
 Cada figura se guarda con `plt.savefig(DIR_FIGURAS / "nombre.png", dpi=300)` para
 que entre con calidad de impresion en el documento.
@@ -129,13 +131,24 @@ Abrí `http://127.0.0.1:8000/docs` (Swagger UI, generado solo por FastAPI/Pydant
 
 | Metodo | Ruta | Que hace |
 |---|---|---|
-| GET | `/salud` | Estado del servicio + version del modelo |
+| GET | `/salud` | Estado del servicio + version del modelo + metricas reales (recall/precision/ROC-AUC) |
 | POST | `/predecir` | Una fila (36 variables UCI 697) → clase + probabilidad |
 | POST | `/predecir/lote` | Lista de estudiantes |
-| GET | `/reporte` | Agregados (conteos, tasa, probabilidad promedio); filtros `sede_id`, `umbral`, `carrera`; `formato=json\|csv` |
+| GET | `/reporte` | Agregados (conteos, tasa, probabilidad promedio); filtros `sede_id`, `umbral`, `carrera`, `capacidad`; `formato=json\|csv` |
+| GET | `/reporte/correo` | El correo completo (asunto, cuerpo, adjunto) que se enviaria, sin enviarlo |
+| GET/PUT | `/reporte/destino` | Lee y actualiza los destinatarios del reporte |
+| POST | `/reporte/enviar` | Envia el reporte real a los destinatarios configurados (Resend o SMTP) |
 
 `sede_id` es metadata de la peticion (multi-sede del servicio). **No** es una
 feature del Random Forest: el dataset UCI no tiene columna de sede.
+
+**Envio de reportes por correo**: el servicio puede mandar el reporte priorizado
+por email (`api/logica/envio.py`). Prioriza Resend vía su API REST
+(`RESEND_API_KEY`, sin SMTP) y cae a SMTP clasico (`REPORTE_SMTP_*`) si esa
+variable no esta presente. El remitente visible se controla con
+`REPORTE_EMAIL_FROM`. El envio es manual (boton "Enviar ahora" en la interfaz),
+a proposito: no hay cron job, para evitar que un aviso automatico que nadie
+revisó se vuelva ruido que se ignora.
 
 Despliegue: blueprint en `render.yaml` (conectar el repo desde el dashboard de
 Render). Tests basicos: `pytest tests/test_api.py`.

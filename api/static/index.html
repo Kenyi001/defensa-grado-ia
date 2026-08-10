@@ -201,6 +201,11 @@
         <input type="text" id="destinatarios" placeholder="bienestar@unal.edu, tutorias@unal.edu">
         <p class="nota" id="avisoSinGuardar" role="status" hidden style="margin:4px 0 0;padding:0;border:0;color:var(--medio)">Tenés cambios sin guardar — "Enviar ahora" queda deshabilitado hasta que guardes.</p>
       </div>
+      <div>
+        <label for="frecuencia">Frecuencia sugerida (referencia, no dispara envíos)</label>
+        <input type="text" id="frecuencia" placeholder="Semanal, lunes 09:00">
+        <p class="nota" style="margin:4px 0 0;padding:0;border:0;">Es solo lo que el equipo se compromete a revisar — el envío real siempre lo dispara "Enviar ahora".</p>
+      </div>
       <div class="acciones-envio">
         <button id="btnGuardarDestino" type="button">Guardar</button>
         <button id="btnPrevia" class="secundario" type="button">Ver el correo que se enviaría</button>
@@ -472,6 +477,7 @@ async function cargarDestino() {
     const d = await r.json();
     $('destinatarios').value = d.destinatarios.join(', ');
     destinatariosGuardados = d.destinatarios;
+    $('frecuencia').value = d.frecuencia || '';
     // "Enviar ahora" solo aparece si el servicio tiene servidor de correo.
     // Un botón que no puede funcionar es peor que no tenerlo.
     $('btnEnviar').hidden = !d.envio_disponible;
@@ -494,10 +500,15 @@ async function guardarDestino() {
   const btn = $('btnGuardarDestino');
   const est = $('estadoDestino');
   const destinatarios = $('destinatarios').value.split(',').map(s => s.trim()).filter(Boolean);
+  const frecuencia = $('frecuencia').value.trim();
 
   const invalidos = destinatarios.filter(d => !PATRON_CORREO.test(d));
   if (invalidos.length) {
     est.innerHTML = `<span class="error">Formato inválido: ${invalidos.join(', ')}</span>`;
+    return;
+  }
+  if (!frecuencia) {
+    est.innerHTML = `<span class="error">La frecuencia no puede quedar vacía.</span>`;
     return;
   }
 
@@ -507,7 +518,7 @@ async function guardarDestino() {
     const r = await fetch('/reporte/destino', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ destinatarios }),
+      body: JSON.stringify({ destinatarios, frecuencia }),
     });
     const d = await r.json();
     if (!r.ok) {

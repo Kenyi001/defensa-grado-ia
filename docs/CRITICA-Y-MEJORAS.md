@@ -75,9 +75,17 @@ El código ya envía correo de verdad (`api/logica/envio.py`, `smtplib`) — sol
    - `REPORTE_EMAIL_FROM` = el remitente que verificaste en el paso 2 (importante: tiene que ser ese, no cualquier dirección — si no coincide con un remitente verificado, Brevo rechaza el envío)
 5. Guardá — Render redespliega solo al cambiar variables de entorno.
 
-### Con Resend (alternativa)
+### Con Resend (la que finalmente se usó en producción — actualizado 9 de agosto)
 
-Mismo esquema: cuenta gratis en [resend.com](https://resend.com), verificar un dominio o usar su dirección de pruebas, sacar host/usuario/clave SMTP de su panel, y cargar las mismas 5 variables en Render.
+Esquema distinto al de Brevo: **no es SMTP**, es la API REST de Resend directamente (`api/logica/envio.py`, función `_enviar_resend`). Solo hace falta una variable:
+
+1. Creá una cuenta gratis en [resend.com](https://resend.com) y sacá una API key desde su panel.
+2. En el dashboard de Render, agregá una sola variable:
+   - `RESEND_API_KEY` = la API key de Resend
+   - Opcional: `REPORTE_EMAIL_FROM` = remitente verificado propio. Sin esta variable, usa el remitente de sandbox de Resend (`onboarding@resend.dev`), que no requiere verificar un dominio.
+3. Guardá — Render redespliega solo al cambiar variables de entorno.
+
+`envio.py` prioriza `RESEND_API_KEY` si está presente; si no, cae al esquema SMTP clásico (`REPORTE_SMTP_*`) como respaldo. No hacen falta las 5 variables de Brevo si se usa este camino.
 
 ### Cómo se prueba sin exponer nada
 
@@ -87,3 +95,7 @@ Con las variables cargadas, `GET /reporte/destino` en la interfaz muestra `envio
 
 - **Tabla en mobile**: hoy escala con scroll horizontal dentro de su propia caja (`#tablaBox`, `index.html:67`), correcto para tablet mas no ideal en un teléfono angosto. Un fallback de tarjetas apiladas es un cambio de diseño más grande, no un fix puntual.
 - **Vínculo del Blueprint de Render** para auto-deploy: sigue sin conectarse (ver `render.yaml`), decisión ya tomada de dejarlo para después del 13 de agosto por el riesgo de tocar la gobernanza del servicio 5 días antes de la defensa.
+
+## Actualización posterior (9 de agosto)
+
+Después de esta pasada del 8 de agosto se hicieron dos cambios más, no cubiertos arriba: se conectó **Resend** en producción (reemplazando la sección de Resend de arriba, que describía un esquema SMTP que finalmente no se usó) y se agregó un **panel de "Confiabilidad del modelo"** (`config.py`, `main.py`, `schemas.py`, `salud.py`) que expone recall/precisión/ROC-AUC reales serializados junto con el modelo, ocultándose solo si el modelo desplegado no las trae. Ambos verificados con tests (`tests/test_api.py`: `test_enviar_con_resend`, `test_salud_expone_metricas_del_modelo_real`) y con un envío real de correo.

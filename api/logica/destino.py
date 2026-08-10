@@ -9,9 +9,12 @@ servicio (REPORTE_SMTP_HOST/USER/PASS) y no se leen ni se escriben desde la
 interfaz. Una pantalla que le pide a un operador la contrasena del servidor de
 correo es un problema de seguridad, no una funcionalidad.
 
-NO HAY FRECUENCIA DE ENVIO, a proposito: el reporte se envia cuando alguien lo
-decide desde el panel, no en automatico. Automatizar un envio que nadie reviso
-antes es como un sistema de alerta se convierte en ruido que se ignora.
+FRECUENCIA: es una preferencia declarada por Bienestar (ej. "Semanal, lunes
+09:00"), editable y persistida igual que los destinatarios. NO dispara ningun
+envio -- es una referencia para que el equipo sepa cada cuanto se comprometio
+a revisar el reporte. El disparo real sigue siendo manual, via "Enviar ahora",
+a proposito: automatizar un envio que nadie reviso antes es como un sistema de
+alerta se convierte en ruido que se ignora.
 """
 
 from __future__ import annotations
@@ -35,19 +38,24 @@ RUTA_DESTINO = Path(os.getenv("DESTINO_PATH", str(RAIZ_PROYECTO / "data" / "dest
 # regex de correo "completo" rechaza direcciones validas y da falsa seguridad.
 _CORREO = re.compile(r"^[^@\s,]+@[^@\s,]+\.[^@\s,]+$")
 
+FRECUENCIA_LARGO_MAXIMO = 60
+
 
 def _por_defecto() -> dict[str, Any]:
     crudo = os.getenv("REPORTE_EMAIL_TO", "")
-    return {"destinatarios": [d.strip() for d in crudo.split(",") if d.strip()]}
+    return {
+        "destinatarios": [d.strip() for d in crudo.split(",") if d.strip()],
+        "frecuencia": os.getenv("REPORTE_FRECUENCIA", "Semanal, lunes 09:00"),
+    }
 
 
 def leer_destino() -> dict[str, Any]:
-    """Destinatarios vigentes. Si nunca se guardo nada, los de la variable de entorno."""
+    """Destinatarios y frecuencia vigentes. Si nunca se guardo nada, los de las variables de entorno."""
     if RUTA_DESTINO.is_file():
         try:
             guardado = json.loads(RUTA_DESTINO.read_text(encoding="utf-8"))
             base = _por_defecto()
-            base.update({k: v for k, v in guardado.items() if k == "destinatarios"})
+            base.update({k: v for k, v in guardado.items() if k in ("destinatarios", "frecuencia")})
             return base
         except (json.JSONDecodeError, OSError):
             # Un archivo corrupto no puede dejar el servicio sin configuracion:
@@ -67,9 +75,23 @@ def validar(destinatarios: list[str]) -> list[str]:
     return errores
 
 
-def guardar_destino(destinatarios: list[str]) -> dict[str, Any]:
-    """Persiste los destinatarios. Asume que ya pasaron por validar()."""
+def validar_frecuencia(frecuencia: str) -> list[str]:
+    """Devuelve la lista de errores. Vacia = la frecuencia es valida.
+
+    Es deliberadamente laxa (texto libre, no un cron real): es una preferencia
+    declarada por una persona, no una expresion que un scheduler vaya a leer.
+    """
+    errores: list[str] = []
+    if not frecuencia or not frecuencia.strip():
+        errores.append("La frecuencia no puede estar vacia")
+    elif len(frecuencia) > FRECUENCIA_LARGO_MAXIMO:
+        errores.append(f"La frecuencia no puede superar los {FRECUENCIA_LARGO_MAXIMO} caracteres")
+    return errores
+
+
+def guardar_destino(destinatarios: list[str], frecuencia: str) -> dict[str, Any]:
+    """Persiste destinatarios y frecuencia. Asume que ya pasaron por validar()/validar_frecuencia()."""
     RUTA_DESTINO.parent.mkdir(parents=True, exist_ok=True)
-    datos = {"destinatarios": destinatarios}
+    datos = {"destinatarios": destinatarios, "frecuencia": frecuencia.strip()}
     RUTA_DESTINO.write_text(json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
     return datos

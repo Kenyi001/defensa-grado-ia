@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
 from api.config import LIMITE_REPORTE_DEFAULT, LIMITE_REPORTE_MAX, SEDES, UMBRAL_DEFAULT
-from api.logica.destino import guardar_destino, leer_destino, validar
+from api.logica.destino import guardar_destino, leer_destino, validar, validar_frecuencia
 from api.logica.envio import ProveedorNoConfigurado, enviar, hay_proveedor_correo
 from api.logica.reporte import armar_reporte, resumen_correo
 from api.schemas import ReporteOutput
@@ -88,21 +88,30 @@ def obtener_destino():
             "gratuito ese disco es efimero: al redesplegar vuelve al valor de la "
             "variable de entorno REPORTE_EMAIL_TO."
         ),
+        # La frecuencia es una referencia declarada por Bienestar, no un disparador:
+        # no existe ningun proceso en el servicio que la lea para enviar solo.
+        "frecuencia_nota": "Es una referencia para el equipo: no dispara ningun envio. El envio real siempre lo dispara 'Enviar ahora'.",
     }
 
 
 @router.put("/reporte/destino", response_model=None)
-def actualizar_destino(destinatarios: list[str] = Body(..., embed=True)):
-    """Cambia los destinatarios desde la interfaz.
+def actualizar_destino(
+    destinatarios: list[str] = Body(..., embed=True),
+    frecuencia: str = Body(..., embed=True),
+):
+    """Cambia los destinatarios y la frecuencia declarada desde la interfaz.
 
     No toca credenciales: el servidor de correo se configura por variables de
     entorno del servicio y no se expone por HTTP en ningun sentido.
+
+    La frecuencia no dispara nada: se persiste como preferencia, igual que los
+    destinatarios. El unico disparador real es POST /reporte/enviar.
     """
     limpios = [d.strip() for d in destinatarios if d and d.strip()]
-    errores = validar(limpios)
+    errores = validar(limpios) + validar_frecuencia(frecuencia)
     if errores:
         raise HTTPException(status_code=422, detail=errores)
-    return {"guardado": True, **guardar_destino(limpios)}
+    return {"guardado": True, **guardar_destino(limpios, frecuencia)}
 
 
 def _componer(
