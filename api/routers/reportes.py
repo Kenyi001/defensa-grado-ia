@@ -9,10 +9,23 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
-from api.config import LIMITE_REPORTE_DEFAULT, LIMITE_REPORTE_MAX, SEDES, UMBRAL_DEFAULT
+from api.config import (
+    CRITERIO_PRECISION_MIN,
+    CRITERIO_RECALL_MIN,
+    LIMITE_REPORTE_DEFAULT,
+    LIMITE_REPORTE_MAX,
+    SEDES,
+    UMBRAL_DEFAULT,
+)
 from api.logica.destino import guardar_destino, leer_destino, validar, validar_frecuencia
 from api.logica.envio import ProveedorNoConfigurado, enviar, hay_proveedor_correo
-from api.logica.reporte import armar_reporte, resumen_correo
+from api.logica.reporte import (
+    HALLAZGOS_ENTRENAMIENTO,
+    armar_reporte,
+    desglose_riesgo,
+    nivel_riesgo,
+    resumen_correo,
+)
 from api.schemas import ReporteOutput
 
 router = APIRouter(tags=["reportes"])
@@ -50,7 +63,7 @@ def armar_csv(senalados: list[dict[str, Any]], desde: int = 1) -> str:
     w.writerow(CABECERA_CSV)
     for i, e in enumerate(senalados, start=desde):
         p = e["probabilidad_desercion"]
-        nivel = "ALTO" if p >= 0.70 else "MEDIO" if p >= 0.40 else "BAJO"
+        nivel = nivel_riesgo(p)
         w.writerow(
             [
                 i,
@@ -298,3 +311,103 @@ def reporte(
         )
 
     return ReporteOutput(**data)
+
+
+@router.get("/reporte/ejecutivo", response_model=None)
+def reporte_ejecutivo(
+    request: Request,
+    umbral: float = Query(default=UMBRAL_DEFAULT, ge=0, le=1),
+    sede_id: Optional[str] = Query(default=None, max_length=64),
+):
+    """Resumen ejecutivo de una pagina, armado con los datos de AHORA.
+
+    Mismo contenido narrativo que el Reporte-Ejecutivo-Vicerrectorado.docx (el
+    entregable estatico de la tesis), pero con los numeros recalculados en
+    vivo: recall/precision del modelo desplegado (metricas_test, cargadas con
+    el .joblib) y el desglose de riesgo sobre la poblacion y el umbral
+    actuales (armar_reporte + desglose_riesgo). Cambiar el umbral y volver a
+    pedir este endpoint cambia "situacion_actual" -- es la demostracion en
+    vivo de que el documento no es solo una foto fija.
+
+    Los comparativos de "que_explica_el_abandono" (HALLAZGOS_ENTRENAMIENTO) NO
+    cambian por request: son hechos del dataset de ENTRENAMIENTO (Dropout vs
+    Graduate), no de la poblacion de inferencia. Recalcularlos en produccion
+    exigiria cargar el dataset de entrenamiento completo al servicio por una
+    ganancia nula, asi que se tratan como constante documentada -- igual que
+    ya se hace con metricas_test.
+    """
+    estado = request.app.state
+    if getattr(estado, "poblacion", None) is None:
+        raise HTTPException(status_code=503, detail="Poblacion de reporte no disponible")
+
+    data = armar_reporte(
+        estado.modelo,
+        estado.poblacion,
+        umbral=umbral,
+        sede_id=sede_id,
+        limite=LIMITE_REPORTE_MAX,
+        modelo_version=estado.modelo_version,
+    )
+    desglose = desglose_riesgo(data["estudiantes"])
+    metricas = getattr(estado, "metricas_test", None) or {}
+    recall = metricas.get("recall")
+    precision = metricas.get("precision")
+
+    return {
+        "el_problema": (
+            "En los ultimos tres anos, la desercion durante los primeros cuatro "
+            "semestres paso del 12% al 18%. La institucion identifica al "
+            "estudiante que abandona cuando ya se fue, momento en el que "
+            "ninguna medida de apoyo es posible. El sistema invierte ese orden: "
+            "senala quienes estan en riesgo mientras todavia cursan."
+        ),
+        "que_hace_el_sistema": {
+            "resumen": (
+                "Identifica, con base en el desempeno academico y financiero ya "
+                "registrado, a los estudiantes con mayor riesgo de abandonar, y "
+                "prioriza a quien contactar primero."
+            ),
+            "bullets": [
+                "Clasifica a cada estudiante en un nivel de riesgo -- alto, medio o bajo -- nunca en una etiqueta de \"desertor\".",
+                "Genera una nomina ordenada por prioridad, ajustable segun la capacidad de Bienestar.",
+            ],
+        },
+        "que_tan_confiable_es": {
+            "recall": recall,
+            "precision": precision,
+            "roc_auc": metricas.get("roc_auc"),
+            "criterio_recall": CRITERIO_RECALL_MIN,
+            "criterio_precision": CRITERIO_PRECISION_MIN,
+            "cumple_criterio": bool(
+                recall is not None
+                and precision is not None
+                and recall >= CRITERIO_RECALL_MIN
+                and precision >= CRITERIO_PRECISION_MIN
+            ),
+        },
+        "situacion_actual": {
+            "sede_id": sede_id,
+            "total_evaluados": data["agregado"]["total"],
+            # Nivel de riesgo (ALTO/MEDIO/BAJO): clasificacion fija de TODA la
+            # poblacion, igual que en el documento entregado -- no depende del
+            # umbral operativo, por eso los tres conteos suman el total.
+            "en_riesgo_alto": desglose["ALTO"],
+            "en_riesgo_medio": desglose["MEDIO"],
+            "en_riesgo_bajo": desglose["BAJO"],
+            # Esto SI depende del umbral elegido: es la decision institucional
+            # de a quien priorizar este periodo, no una propiedad fija del
+            # estudiante. Es el numero que cambia si se mueve el umbral.
+            "umbral_operativo": umbral,
+            "priorizados_con_este_umbral": data["agregado"]["en_riesgo"],
+        },
+        "que_explica_el_abandono": HALLAZGOS_ENTRENAMIENTO,
+        "tres_medidas_recomendadas": [
+            "1. Tutoria academica temprana. Activar un plan de acompanamiento para todo estudiante que apruebe menos de la mitad de las asignaturas de su primer semestre.",
+            "2. Alerta financiera preventiva. Contactar al estudiante ante el primer incumplimiento de pago, ofreciendo alternativas de refinanciamiento.",
+            "3. Becas focalizadas por riesgo. Reservar un cupo del programa de becas para el cuartil de mayor riesgo sin apoyo economico.",
+        ],
+        "consideraciones_antes_de_implementar": [
+            "El sistema se construyo con datos de una institucion extranjera comparable y debe recalibrarse con datos propios antes de un uso real.",
+            "Genero, nacionalidad y nivel educativo de los padres no se usan para asignar recursos: ninguna decision puede fundarse en atributos que el estudiante no eligio.",
+        ],
+    }

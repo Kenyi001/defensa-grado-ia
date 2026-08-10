@@ -97,6 +97,51 @@ REFERENCIA_GRADUADOS = {
     "Curricular units 2nd sem (grade)": 13,
 }
 
+# Cortes de probabilidad para el nivel de riesgo en texto. Un solo lugar: lo
+# usan tanto el CSV/correo (armar_csv, reportes.py) como el desglose agregado
+# de mas abajo, para que "ALTO" signifique lo mismo en todos los reportes.
+NIVEL_ALTO_CORTE = 0.70
+NIVEL_MEDIO_CORTE = 0.40
+
+
+def nivel_riesgo(probabilidad: float) -> str:
+    if probabilidad >= NIVEL_ALTO_CORTE:
+        return "ALTO"
+    if probabilidad >= NIVEL_MEDIO_CORTE:
+        return "MEDIO"
+    return "BAJO"
+
+
+def desglose_riesgo(estudiantes: list[dict[str, Any]]) -> dict[str, int]:
+    """Clasifica a TODA la poblacion recibida en ALTO/MEDIO/BAJO, en vivo.
+
+    A proposito, NO filtra por `en_riesgo`: es el mismo corte que ya usa
+    armar_csv() para la columna nivel_riesgo, pero aplicado a cada estudiante
+    de la poblacion, sin importar el umbral operativo con que se llamo a
+    armar_reporte(). "Nivel de riesgo" y "umbral de atencion este periodo" son
+    dos decisiones distintas: el primero es una clasificacion fija (0.70/0.40)
+    igual para todos; el segundo es la decision institucional de a quien
+    contactar ESTE periodo segun la capacidad disponible. Por eso los tres
+    conteos siempre suman el total de la poblacion, no el total de senalados.
+    """
+    conteo = {"ALTO": 0, "MEDIO": 0, "BAJO": 0}
+    for e in estudiantes:
+        conteo[nivel_riesgo(e["probabilidad_desercion"])] += 1
+    return conteo
+
+
+# Comparaciones Dropout-vs-Graduate calculadas UNA VEZ sobre el dataset de
+# entrenamiento (notebook, Fase 2 EDA / Fase 5 evaluacion) -- no son datos de
+# la poblacion de inferencia (los 794 Enrolled) y no cambian salvo que se
+# reentrene el modelo con una cohorte nueva. Se exponen como constante
+# documentada, igual que metricas_test: no se recalculan en produccion porque
+# eso exigiria cargar el dataset de entrenamiento completo al servicio.
+HALLAZGOS_ENTRENAMIENTO = {
+    "asignaturas_1er_semestre": {"desertor": 2.6, "graduado": 6.2},
+    "matricula_al_dia_pct": {"desertor": 68, "graduado": 99},
+    "con_beca_pct": {"desertor": 9, "graduado": 38},
+}
+
 
 def motivos_y_accion(fila: Any) -> tuple[str, str]:
     """Explica por que este estudiante esta señalado y que corresponde hacer.

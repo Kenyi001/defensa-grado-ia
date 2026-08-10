@@ -131,6 +131,50 @@ def test_reporte_json(client: TestClient) -> None:
     assert body["agregado"]["total"] >= 0
 
 
+def test_reporte_ejecutivo_usa_datos_en_vivo(client: TestClient) -> None:
+    """El resumen ejecutivo tiene que reflejar el modelo y la poblacion de AHORA,
+    no numeros escritos a mano -- es justamente lo que lo distingue del .docx
+    estatico entregado en la tesis.
+    """
+    r = client.get("/reporte/ejecutivo", params={"umbral": 0.5})
+    assert r.status_code == 200
+    body = r.json()
+
+    # Confiabilidad: mismos numeros que /salud, no una copia separada.
+    salud = client.get("/salud").json()
+    assert body["que_tan_confiable_es"]["recall"] == salud["recall"]
+    assert body["que_tan_confiable_es"]["precision"] == salud["precision"]
+    assert body["que_tan_confiable_es"]["cumple_criterio"] is True
+
+    # El desglose de riesgo (ALTO/MEDIO/BAJO) es una clasificacion fija de TODA
+    # la poblacion -- como en el documento entregado -- asi que suma el total
+    # evaluado, no el total de senalados por el umbral.
+    situacion = body["situacion_actual"]
+    suma = situacion["en_riesgo_alto"] + situacion["en_riesgo_medio"] + situacion["en_riesgo_bajo"]
+    reporte = client.get("/reporte", params={"umbral": 0.5}).json()
+    assert suma == reporte["agregado"]["total"]
+    assert situacion["total_evaluados"] == reporte["agregado"]["total"]
+    # Lo que SI depende del umbral es "priorizados_con_este_umbral".
+    assert situacion["priorizados_con_este_umbral"] == reporte["agregado"]["en_riesgo"]
+
+    assert "que_explica_el_abandono" in body
+    assert len(body["tres_medidas_recomendadas"]) == 3
+
+
+def test_reporte_ejecutivo_desglose_no_depende_del_umbral(client: TestClient) -> None:
+    """ALTO/MEDIO/BAJO es una propiedad fija de cada estudiante (0.70/0.40),
+    no de la decision operativa de a quien atender este periodo -- por eso
+    tiene que dar lo mismo sin importar el umbral pedido.
+    """
+    a = client.get("/reporte/ejecutivo", params={"umbral": 0.1}).json()["situacion_actual"]
+    b = client.get("/reporte/ejecutivo", params={"umbral": 0.9}).json()["situacion_actual"]
+    assert (a["en_riesgo_alto"], a["en_riesgo_medio"], a["en_riesgo_bajo"]) == (
+        b["en_riesgo_alto"], b["en_riesgo_medio"], b["en_riesgo_bajo"],
+    )
+    # Lo que si cambia con el umbral es cuantos se priorizarian este periodo.
+    assert a["priorizados_con_este_umbral"] != b["priorizados_con_este_umbral"]
+
+
 def test_reporte_csv_nunca_etiqueta_desertor(client: TestClient) -> None:
     """El CSV que recibe Bienestar no puede rotular a nadie como 'desertor'.
 
