@@ -71,6 +71,22 @@ El notebook es **auto-suficiente**: la primera celda detecta el entorno.
    dataset solo; en local no hace nada.
 3. Ejecutar el resto normalmente.
 
+Si el notebook cambio en GitHub despues de que ya lo abriste en una pestana de
+Colab, esa pestana **no se actualiza sola**. Antes de re-ejecutar por un error
+raro, cerrala y volve a abrirla desde el link de GitHub (o *Entorno de
+ejecucion > Desconectar y eliminar entorno de ejecucion* y despues *Archivo >
+Abrir cuaderno > GitHub* de nuevo) para asegurarte de estar corriendo la
+version mas reciente.
+
+**Nota sobre `partial_dependence` (Fase 5.6):** esa celda usa
+`method='brute'` a proposito. El metodo `'recursion'` (el que sklearn elige
+por defecto para Random Forest) puede fallar en algunas versiones de
+scikit-learn con `ValueError: cannot reshape array...` para variables
+binarias como `Tuition fees up to date` o `Scholarship holder` — es un bug
+de esa version, no del codigo ni de numpy. `brute` evita el problema porque
+llama a `predict_proba()` por la API publica en vez de recorrer la
+estructura interna del arbol.
+
 No hay que cambiar ni una ruta: `RAIZ`, `DIR_DATOS` y `DIR_FIGURAS` se resuelven
 segun el entorno.
 
